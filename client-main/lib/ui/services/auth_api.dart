@@ -42,14 +42,14 @@ class AuthApi {
     }
 
     if (kIsWeb) {
-      return 'http://118.34.15.14:8090';
+      return 'http://127.0.0.1:8090';
     }
 
     if (Platform.isAndroid) {
-      return 'http://118.34.15.14:8090';
+      return 'http://10.0.2.2:8090';
     }
 
-    return 'http://118.34.15.14:8090';
+    return 'http://127.0.0.1:8090';
   }
 
   Future<void> register({
