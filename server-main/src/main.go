@@ -25,6 +25,7 @@ func main() {
 
 	registerLoginRoute(app)
 	registerRegisterRoute(app)
+	registerProfileRoutes(app)
 
 	// If no args, run serve by default
 	if len(os.Args) == 1 {
