@@ -8,9 +8,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'dart:io';
 import 'dart:math' as math;
-import 'fog_painter.dart';
 
-// ── 캡슐 데이터 모델 ─────────────────────────────────────────
 class CapsulePin {
   final String id;
   final double lat;
@@ -27,7 +25,6 @@ class CapsulePin {
   });
 }
 
-// ── 마커 탭 리스너 ───────────────────────────────────────────
 // ignore: deprecated_member_use
 class _AnnotationTapListener implements OnPointAnnotationClickListener {
   final void Function(PointAnnotation) onTap;
@@ -37,7 +34,6 @@ class _AnnotationTapListener implements OnPointAnnotationClickListener {
   void onPointAnnotationClick(PointAnnotation annotation) => onTap(annotation);
 }
 
-// ── 지도 화면 ────────────────────────────────────────────────
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
 
@@ -61,9 +57,6 @@ class MapScreenState extends State<MapScreen>
 
   bool _isLoading = false;
   bool _tapListenerRegistered = false;
-  List<Offset> _holeOffsets = [];
-  double _holeRadius = 120;
-  Timer? _overlayTimer;
 
   @override
   bool get wantKeepAlive => true;
@@ -77,7 +70,6 @@ class MapScreenState extends State<MapScreen>
   @override
   void dispose() {
     _posSub?.cancel();
-    _overlayTimer?.cancel();
     super.dispose();
   }
 
@@ -95,132 +87,6 @@ class MapScreenState extends State<MapScreen>
     );
     await _moveToMyLocation();
     _startTracking();
-    _startOverlayTimer();
-    map.style.isStyleLoaded().then((loaded) {
-      if (loaded == true) {
-        _applyMapStyle(map);
-      }
-    });
-  }
-
-  Future<void> _applyMapStyle(MapboxMap map) async {
-    try {
-      final labelLayers = [
-        'road-label',
-        'poi-label',
-        'place-label',
-        'transit-label',
-        'natural-point-label',
-        'waterway-label',
-        'country-label',
-        'state-label',
-        'settlement-label',
-        'settlement-subdivision-label',
-        'airport-label',
-        'natural-line-label',
-        'bridge-label',
-      ];
-
-      for (final layerId in labelLayers) {
-        try {
-          await map.style.setStyleLayerProperty(
-            layerId,
-            'text-field',
-            '["coalesce",["get","name_ko"],["get","name"]]',
-          );
-        } catch (_) {}
-      }
-
-      final roadLayers = {
-        'road-motorway-trunk': '#f8d7a0',
-        'road-primary': '#fcedc4',
-        'road-secondary-tertiary': '#ffffff',
-        'road-street': '#ffffff',
-        'road-minor': '#f5f5f5',
-        'road-path': '#e8e8e8',
-      };
-
-      for (final entry in roadLayers.entries) {
-        try {
-          await map.style.setStyleLayerProperty(
-            entry.key,
-            'line-color',
-            entry.value,
-          );
-        } catch (_) {}
-      }
-
-      try {
-        await map.style.setStyleLayerProperty(
-          'building',
-          'fill-color',
-          '#e8e0d8',
-        );
-        await map.style.setStyleLayerProperty('building', 'fill-opacity', 0.8);
-      } catch (_) {}
-
-      try {
-        await map.style.setStyleLayerProperty('water', 'fill-color', '#a8d5e2');
-      } catch (_) {}
-
-      try {
-        await map.style.setStyleLayerProperty('park', 'fill-color', '#c8e6c0');
-        await map.style.setStyleLayerProperty(
-          'landuse',
-          'fill-color',
-          '#f0ece3',
-        );
-      } catch (_) {}
-    } catch (e) {
-      debugPrint('지도 스타일 오류: $e');
-    }
-  }
-
-  void _startOverlayTimer() {
-    _overlayTimer?.cancel();
-    _overlayTimer = Timer.periodic(
-      const Duration(milliseconds: 100),
-      (_) => _updateHoleOffsets(),
-    );
-  }
-
-  static const double _fixedHoleRadius = 130;
-  static const double _minZoomToShow = 11.0;
-
-  Future<void> _updateHoleOffsets() async {
-    if (_map == null || _pins.isEmpty) return;
-
-    double zoom = 0;
-    try {
-      zoom = (await _map!.getCameraState()).zoom;
-    } catch (_) {}
-
-    if (zoom < _minZoomToShow) {
-      if (mounted) {
-        setState(() {
-          _holeOffsets = [];
-          _holeRadius = _fixedHoleRadius;
-        });
-      }
-      return;
-    }
-
-    final List<Offset> offsets = [];
-    for (final pin in _pins) {
-      try {
-        final sc = await _map!.pixelForCoordinate(
-          Point(coordinates: Position(pin.lng, pin.lat)),
-        );
-        offsets.add(Offset(sc.x, sc.y));
-      } catch (_) {}
-    }
-
-    if (mounted) {
-      setState(() {
-        _holeOffsets = offsets;
-        _holeRadius = _fixedHoleRadius;
-      });
-    }
   }
 
   Future<void> _moveToMyLocation() async {
@@ -265,16 +131,8 @@ class MapScreenState extends State<MapScreen>
   Future<Uint8List> _makeDotImage() async {
     final rec = PictureRecorder();
     final c = Canvas(rec, const Rect.fromLTWH(0, 0, 40, 40));
-    c.drawCircle(
-      const Offset(20, 20),
-      18,
-      Paint()..color = const Color(0xFFFFFFFF),
-    );
-    c.drawCircle(
-      const Offset(20, 20),
-      13,
-      Paint()..color = const Color(0xFF4A90E2),
-    );
+    c.drawCircle(const Offset(20, 20), 18, Paint()..color = const Color(0xFFFFFFFF));
+    c.drawCircle(const Offset(20, 20), 13, Paint()..color = const Color(0xFF4A90E2));
     final img = await rec.endRecording().toImage(40, 40);
     final d = await img.toByteData(format: ImageByteFormat.png);
     return d!.buffer.asUint8List();
@@ -360,16 +218,10 @@ class MapScreenState extends State<MapScreen>
       ..lineTo(sz / 2 + 10, sz - 4)
       ..close();
     c.drawPath(tail, Paint()..color = const Color(0xFF7B5EA7));
-    c.drawCircle(
-      Offset(sz / 2, sz / 2),
-      sz / 2 - 2,
-      Paint()..color = const Color(0xFF7B5EA7),
-    );
-    c.clipPath(
-      Path()..addOval(
-        Rect.fromCircle(center: Offset(sz / 2, sz / 2), radius: sz / 2 - pad),
-      ),
-    );
+    c.drawCircle(Offset(sz / 2, sz / 2), sz / 2 - 2, Paint()..color = const Color(0xFF7B5EA7));
+    c.clipPath(Path()..addOval(
+      Rect.fromCircle(center: Offset(sz / 2, sz / 2), radius: sz / 2 - pad),
+    ));
     final sw = image.width.toDouble(), sh = image.height.toDouble();
     final ms = math.min(sw, sh);
     c.drawImageRect(
@@ -406,9 +258,7 @@ class MapScreenState extends State<MapScreen>
   }
 
   Future<void> addPhotoPin() async {
-    final picked = await _picker.pickImage(
-      source: img_picker.ImageSource.gallery,
-    );
+    final picked = await _picker.pickImage(source: img_picker.ImageSource.gallery);
     if (picked == null) return;
     final file = File(picked.path);
     setState(() => _isLoading = true);
@@ -429,13 +279,11 @@ class MapScreenState extends State<MapScreen>
           ),
         );
       }
-      final lat = gpsPos.latitude;
-      final lng = gpsPos.longitude;
 
       final pin = CapsulePin(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
-        lat: lat,
-        lng: lng,
+        lat: gpsPos.latitude,
+        lng: gpsPos.longitude,
         photo: file,
         title: '타임캡슐 ${_pins.length + 1}',
       );
@@ -445,26 +293,28 @@ class MapScreenState extends State<MapScreen>
       final markerImg = await _makePhotoMarker(file);
       final marker = await _pinManager?.create(
         PointAnnotationOptions(
-          geometry: Point(coordinates: Position(lng, lat)),
+          geometry: Point(coordinates: Position(gpsPos.longitude, gpsPos.latitude)),
           image: markerImg,
           iconSize: 0.8,
         ),
       );
-      if (marker != null) {
-        _markerMap[pin.id] = marker.id;
-      }
+      if (marker != null) _markerMap[pin.id] = marker.id;
       _registerTapListener();
-      await _updateHoleOffsets();
+
+      // 사진 핀 위치로 카메라 이동
+      _map?.flyTo(
+        CameraOptions(
+          center: Point(coordinates: Position(gpsPos.longitude, gpsPos.latitude)),
+          zoom: 14.0,
+        ),
+        MapAnimationOptions(duration: 800),
+      );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('오류: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('오류: $e')));
       }
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -522,7 +372,6 @@ class MapScreenState extends State<MapScreen>
   Widget build(BuildContext context) {
     super.build(context);
     return Scaffold(
-      extendBodyBehindAppBar: true,
       body: Stack(
         children: [
           MapWidget(
@@ -530,16 +379,9 @@ class MapScreenState extends State<MapScreen>
             styleUri: MapboxStyles.STANDARD,
             cameraOptions: CameraOptions(
               center: Point(coordinates: Position(127.2890, 36.4800)),
-              zoom: 4.0,
+              zoom: 6.0,
             ),
             onMapCreated: _onMapCreated,
-          ),
-          Positioned.fill(
-            child: IgnorePointer(
-              child: CustomPaint(
-                painter: FogPainter(holes: _holeOffsets, radius: _holeRadius),
-              ),
-            ),
           ),
           if (_isLoading)
             Container(
