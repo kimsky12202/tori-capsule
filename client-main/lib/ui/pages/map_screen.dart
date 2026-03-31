@@ -224,12 +224,20 @@ class MapScreenState extends State<MapScreen>
         return (null, 'GPS 정보가 없어요. 카메라 설정에서 "위치 태그"를 켜고 직접 찍은 사진을 써보세요.');
       }
 
+      final latRaw = data['GPS GPSLatitude']!.values.toList();
+      final lngRaw = data['GPS GPSLongitude']!.values.toList();
+      debugPrint('GPS lat raw: $latRaw (types: ${latRaw.map((e) => e.runtimeType).toList()})');
+      debugPrint('GPS lng raw: $lngRaw (types: ${lngRaw.map((e) => e.runtimeType).toList()})');
+      debugPrint('GPS lat ref: ${data['GPS GPSLatitudeRef']?.printable}');
+      debugPrint('GPS lng ref: ${data['GPS GPSLongitudeRef']?.printable}');
+
       double? parseDMS(IfdTag tag) {
         final vals = tag.values.toList();
         if (vals.length < 3) return null;
         final deg = _toDouble(vals[0]);
         final min = _toDouble(vals[1]);
         final sec = _toDouble(vals[2]);
+        debugPrint('  DMS: deg=$deg, min=$min, sec=$sec');
         if (deg == null || min == null || sec == null) return null;
         return deg + min / 60.0 + sec / 3600.0;
       }
