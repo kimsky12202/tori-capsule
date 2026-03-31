@@ -3,6 +3,8 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart' as geo;
 import 'package:image_picker/image_picker.dart' as img_picker;
 import 'package:exif/exif.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 import 'dart:ui';
 import 'dart:async';
 import 'dart:typed_data';
@@ -13,16 +15,34 @@ class CapsulePin {
   final String id;
   final double lat;
   final double lng;
-  final File? photo;
+  final String? photoPath;
   final String title;
 
   CapsulePin({
     required this.id,
     required this.lat,
     required this.lng,
-    this.photo,
+    this.photoPath,
     required this.title,
   });
+
+  File? get photo => photoPath != null ? File(photoPath!) : null;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'lat': lat,
+    'lng': lng,
+    'photoPath': photoPath,
+    'title': title,
+  };
+
+  factory CapsulePin.fromJson(Map<String, dynamic> j) => CapsulePin(
+    id: j['id'] as String,
+    lat: (j['lat'] as num).toDouble(),
+    lng: (j['lng'] as num).toDouble(),
+    photoPath: j['photoPath'] as String?,
+    title: j['title'] as String,
+  );
 }
 
 // ignore: deprecated_member_use
@@ -44,6 +64,7 @@ class MapScreen extends StatefulWidget {
 class MapScreenState extends State<MapScreen>
     with AutomaticKeepAliveClientMixin {
   static const String _token = String.fromEnvironment('MAPBOX_ACCESS_TOKEN');
+  static const String _prefsKey = 'capsule_pins';
 
   MapboxMap? _map;
   PointAnnotationManager? _pinManager;
@@ -73,6 +94,48 @@ class MapScreenState extends State<MapScreen>
     super.dispose();
   }
 
+  // ── 저장/불러오기 ─────────────────────────────────────────
+  Future<void> _savePins() async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = _pins.map((p) => jsonEncode(p.toJson())).toList();
+    await prefs.setStringList(_prefsKey, list);
+  }
+
+  Future<void> _loadPins() async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = prefs.getStringList(_prefsKey) ?? [];
+    for (final raw in list) {
+      try {
+        final pin = CapsulePin.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+        // 파일이 아직 존재하는 것만 복원
+        if (pin.photoPath == null || File(pin.photoPath!).existsSync()) {
+          _pins.add(pin);
+          await _addMarkerToMap(pin);
+        }
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _addMarkerToMap(CapsulePin pin) async {
+    _pinManager ??= await _map?.annotations.createPointAnnotationManager();
+    Uint8List markerImg;
+    if (pin.photo != null && pin.photo!.existsSync()) {
+      markerImg = await _makePhotoMarker(pin.photo!);
+    } else {
+      markerImg = await _makeDotImage(color: const Color(0xFF7B5EA7));
+    }
+    final marker = await _pinManager?.create(
+      PointAnnotationOptions(
+        geometry: Point(coordinates: Position(pin.lng, pin.lat)),
+        image: markerImg,
+        iconSize: 0.8,
+      ),
+    );
+    if (marker != null) _markerMap[pin.id] = marker.id;
+    _registerTapListener();
+  }
+
+  // ── 지도 초기화 ───────────────────────────────────────────
   Future<void> _onMapCreated(MapboxMap map) async {
     _map = map;
     map.gestures.updateSettings(
@@ -87,6 +150,7 @@ class MapScreenState extends State<MapScreen>
     );
     await _moveToMyLocation();
     _startTracking();
+    await _loadPins();
   }
 
   Future<void> _moveToMyLocation() async {
@@ -122,17 +186,17 @@ class MapScreenState extends State<MapScreen>
     _myLocMarker = await _myLocManager?.create(
       PointAnnotationOptions(
         geometry: Point(coordinates: Position(lng, lat)),
-        image: await _makeDotImage(),
+        image: await _makeDotImage(color: const Color(0xFF4A90E2)),
         iconSize: 1.0,
       ),
     );
   }
 
-  Future<Uint8List> _makeDotImage() async {
+  Future<Uint8List> _makeDotImage({required Color color}) async {
     final rec = PictureRecorder();
     final c = Canvas(rec, const Rect.fromLTWH(0, 0, 40, 40));
-    c.drawCircle(const Offset(20, 20), 18, Paint()..color = const Color(0xFFFFFFFF));
-    c.drawCircle(const Offset(20, 20), 13, Paint()..color = const Color(0xFF4A90E2));
+    c.drawCircle(const Offset(20, 20), 18, Paint()..color = Colors.white);
+    c.drawCircle(const Offset(20, 20), 13, Paint()..color = color);
     final img = await rec.endRecording().toImage(40, 40);
     final d = await img.toByteData(format: ImageByteFormat.png);
     return d!.buffer.asUint8List();
@@ -147,36 +211,36 @@ class MapScreenState extends State<MapScreen>
     ).listen((p) => _updateMyDot(p.latitude, p.longitude));
   }
 
+  // ── GPS EXIF 추출 ─────────────────────────────────────────
   Future<(geo.Position?, String)> _extractGpsFromPhoto(File photo) async {
     try {
       final bytes = await photo.readAsBytes();
       final data = await readExifFromBytes(bytes);
 
-      debugPrint('EXIF 키 목록: ${data.keys.toList()}');
-
       if (data.isEmpty) {
-        return (null, 'EXIF 데이터가 없어요. 카메라로 직접 찍은 사진을 사용해보세요.');
+        return (null, 'EXIF 데이터가 없어요. 카메라로 직접 찍은 사진을 써보세요.');
       }
-
-      final hasGpsKeys = data.containsKey('GPS GPSLatitude') &&
-          data.containsKey('GPS GPSLongitude');
-
-      if (!hasGpsKeys) {
-        return (null, 'GPS 정보가 없어요. 카메라 설정에서 위치 정보 저장을 켜고 직접 찍은 사진을 사용해보세요.');
+      if (!data.containsKey('GPS GPSLatitude') || !data.containsKey('GPS GPSLongitude')) {
+        return (null, 'GPS 정보가 없어요. 카메라 설정에서 "위치 태그"를 켜고 직접 찍은 사진을 써보세요.');
       }
 
       double? parseDMS(IfdTag tag) {
         final vals = tag.values.toList();
         if (vals.length < 3) return null;
-        final r = _r2d(vals[0]) + _r2d(vals[1]) / 60.0 + _r2d(vals[2]) / 3600.0;
-        if (r.isNaN || r.isInfinite) return null;
-        return r;
+        final deg = _toDouble(vals[0]);
+        final min = _toDouble(vals[1]);
+        final sec = _toDouble(vals[2]);
+        if (deg == null || min == null || sec == null) return null;
+        return deg + min / 60.0 + sec / 3600.0;
       }
 
       double? lat = parseDMS(data['GPS GPSLatitude']!);
       double? lng = parseDMS(data['GPS GPSLongitude']!);
+
+      debugPrint('GPS 파싱 결과: lat=$lat, lng=$lng');
+
       if (lat == null || lng == null) {
-        return (null, 'GPS 값 파싱에 실패했어요.');
+        return (null, 'GPS 값을 읽을 수 없어요.');
       }
       if (data['GPS GPSLatitudeRef']?.printable == 'S') lat = -lat;
       if (data['GPS GPSLongitudeRef']?.printable == 'W') lng = -lng;
@@ -185,13 +249,8 @@ class MapScreenState extends State<MapScreen>
         latitude: lat,
         longitude: lng,
         timestamp: DateTime.now(),
-        accuracy: 0,
-        altitude: 0,
-        altitudeAccuracy: 0,
-        heading: 0,
-        headingAccuracy: 0,
-        speed: 0,
-        speedAccuracy: 0,
+        accuracy: 0, altitude: 0, altitudeAccuracy: 0,
+        heading: 0, headingAccuracy: 0, speed: 0, speedAccuracy: 0,
       ), '');
     } catch (e) {
       debugPrint('EXIF 오류: $e');
@@ -199,25 +258,30 @@ class MapScreenState extends State<MapScreen>
     }
   }
 
-  double _r2d(dynamic val) {
+  // Ratio / num / String 모두 처리
+  double? _toDouble(dynamic val) {
     try {
-      if (val is num) {
-        final d = val.toDouble();
-        return (d.isNaN || d.isInfinite) ? 0.0 : d;
-      }
+      // exif Ratio 타입: numerator, denominator 프로퍼티
+      final n = (val as dynamic).numerator;
+      final d = (val as dynamic).denominator;
+      if (d == 0) return 0.0;
+      return (n as num).toDouble() / (d as num).toDouble();
+    } catch (_) {}
+    try {
+      if (val is num) return val.toDouble();
+    } catch (_) {}
+    try {
       final s = val.toString().trim();
       if (s.contains('/')) {
-        final p = s.split('/');
-        final n = double.tryParse(p[0]) ?? 0.0;
-        final d = double.tryParse(p[1]) ?? 1.0;
-        if (d == 0.0) return 0.0;
-        final r = n / d;
-        return (r.isNaN || r.isInfinite) ? 0.0 : r;
+        final parts = s.split('/');
+        final n = double.tryParse(parts[0]) ?? 0.0;
+        final d = double.tryParse(parts[1]) ?? 1.0;
+        if (d == 0) return 0.0;
+        return n / d;
       }
-      return double.tryParse(s) ?? 0.0;
-    } catch (_) {
-      return 0.0;
-    }
+      return double.tryParse(s);
+    } catch (_) {}
+    return null;
   }
 
   Future<Uint8List> _makePhotoMarker(File photo) async {
@@ -254,10 +318,7 @@ class MapScreenState extends State<MapScreen>
     _pinManager!.addOnPointAnnotationClickListener(
       _AnnotationTapListener((PointAnnotation tapped) {
         final pinId = _markerMap.entries
-            .firstWhere(
-              (e) => e.value == tapped.id,
-              orElse: () => const MapEntry('', ''),
-            )
+            .firstWhere((e) => e.value == tapped.id, orElse: () => const MapEntry('', ''))
             .key;
         if (pinId.isEmpty) return;
         final p = _pins.firstWhere(
@@ -270,6 +331,7 @@ class MapScreenState extends State<MapScreen>
     _tapListenerRegistered = true;
   }
 
+  // ── 사진 추가 ─────────────────────────────────────────────
   Future<void> addPhotoPin() async {
     final picked = await _picker.pickImage(source: img_picker.ImageSource.gallery);
     if (picked == null) return;
@@ -278,6 +340,7 @@ class MapScreenState extends State<MapScreen>
     try {
       final (gpsResult, gpsMessage) = await _extractGpsFromPhoto(file);
       geo.Position? gpsPos = gpsResult;
+
       if (gpsPos == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -288,9 +351,7 @@ class MapScreenState extends State<MapScreen>
           );
         }
         gpsPos = await geo.Geolocator.getCurrentPosition(
-          locationSettings: const geo.LocationSettings(
-            accuracy: geo.LocationAccuracy.high,
-          ),
+          locationSettings: const geo.LocationSettings(accuracy: geo.LocationAccuracy.high),
         );
       }
 
@@ -298,24 +359,13 @@ class MapScreenState extends State<MapScreen>
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         lat: gpsPos.latitude,
         lng: gpsPos.longitude,
-        photo: file,
+        photoPath: file.path,
         title: '타임캡슐 ${_pins.length + 1}',
       );
       _pins.add(pin);
+      await _addMarkerToMap(pin);
+      await _savePins();
 
-      _pinManager ??= await _map?.annotations.createPointAnnotationManager();
-      final markerImg = await _makePhotoMarker(file);
-      final marker = await _pinManager?.create(
-        PointAnnotationOptions(
-          geometry: Point(coordinates: Position(gpsPos.longitude, gpsPos.latitude)),
-          image: markerImg,
-          iconSize: 0.8,
-        ),
-      );
-      if (marker != null) _markerMap[pin.id] = marker.id;
-      _registerTapListener();
-
-      // 사진 핀 위치로 카메라 이동
       _map?.flyTo(
         CameraOptions(
           center: Point(coordinates: Position(gpsPos.longitude, gpsPos.latitude)),
@@ -347,29 +397,17 @@ class MapScreenState extends State<MapScreen>
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
+              width: 40, height: 4,
+              decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
             ),
             const SizedBox(height: 16),
-            if (pin.photo != null)
+            if (pin.photo != null && pin.photo!.existsSync())
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: Image.file(
-                  pin.photo!,
-                  height: 200,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                ),
+                child: Image.file(pin.photo!, height: 200, width: double.infinity, fit: BoxFit.cover),
               ),
             const SizedBox(height: 16),
-            Text(
-              pin.title,
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
+            Text(pin.title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Text(
               '📍 ${pin.lat.toStringAsFixed(5)}, ${pin.lng.toStringAsFixed(5)}',
@@ -400,13 +438,10 @@ class MapScreenState extends State<MapScreen>
           if (_isLoading)
             Container(
               color: Colors.black26,
-              child: const Center(
-                child: CircularProgressIndicator(color: Color(0xFF7B5EA7)),
-              ),
+              child: const Center(child: CircularProgressIndicator(color: Color(0xFF7B5EA7))),
             ),
           Positioned(
-            bottom: 100,
-            right: 16,
+            bottom: 100, right: 16,
             child: FloatingActionButton(
               heroTag: 'photo',
               backgroundColor: const Color(0xFF7B5EA7),
@@ -415,8 +450,7 @@ class MapScreenState extends State<MapScreen>
             ),
           ),
           Positioned(
-            bottom: 30,
-            right: 16,
+            bottom: 30, right: 16,
             child: FloatingActionButton(
               heroTag: 'location',
               backgroundColor: Colors.white,
