@@ -341,7 +341,10 @@ class MapScreenState extends State<MapScreen>
 
   // ── 사진 추가 ─────────────────────────────────────────────
   Future<void> addPhotoPin() async {
-    final picked = await _picker.pickImage(source: img_picker.ImageSource.gallery);
+    final picked = await _picker.pickImage(
+      source: img_picker.ImageSource.gallery,
+      requestFullMetadata: true,
+    );
     if (picked == null) return;
     final file = File(picked.path);
     setState(() => _isLoading = true);
