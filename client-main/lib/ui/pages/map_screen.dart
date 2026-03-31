@@ -147,28 +147,41 @@ class MapScreenState extends State<MapScreen>
     ).listen((p) => _updateMyDot(p.latitude, p.longitude));
   }
 
-  Future<geo.Position?> _extractGpsFromPhoto(File photo) async {
+  Future<(geo.Position?, String)> _extractGpsFromPhoto(File photo) async {
     try {
       final bytes = await photo.readAsBytes();
       final data = await readExifFromBytes(bytes);
-      if (!data.containsKey('GPS GPSLatitude') ||
-          !data.containsKey('GPS GPSLongitude')) {
-        return null;
+
+      debugPrint('EXIF 키 목록: ${data.keys.toList()}');
+
+      if (data.isEmpty) {
+        return (null, 'EXIF 데이터가 없어요. 카메라로 직접 찍은 사진을 사용해보세요.');
       }
+
+      final hasGpsKeys = data.containsKey('GPS GPSLatitude') &&
+          data.containsKey('GPS GPSLongitude');
+
+      if (!hasGpsKeys) {
+        return (null, 'GPS 정보가 없어요. 카메라 설정에서 위치 정보 저장을 켜고 직접 찍은 사진을 사용해보세요.');
+      }
+
       double? parseDMS(IfdTag tag) {
         final vals = tag.values.toList();
         if (vals.length < 3) return null;
         final r = _r2d(vals[0]) + _r2d(vals[1]) / 60.0 + _r2d(vals[2]) / 3600.0;
-        if (r.isNaN || r.isInfinite || r == 0.0) return null;
+        if (r.isNaN || r.isInfinite) return null;
         return r;
       }
 
       double? lat = parseDMS(data['GPS GPSLatitude']!);
       double? lng = parseDMS(data['GPS GPSLongitude']!);
-      if (lat == null || lng == null) return null;
+      if (lat == null || lng == null) {
+        return (null, 'GPS 값 파싱에 실패했어요.');
+      }
       if (data['GPS GPSLatitudeRef']?.printable == 'S') lat = -lat;
       if (data['GPS GPSLongitudeRef']?.printable == 'W') lng = -lng;
-      return geo.Position(
+
+      return (geo.Position(
         latitude: lat,
         longitude: lng,
         timestamp: DateTime.now(),
@@ -179,10 +192,10 @@ class MapScreenState extends State<MapScreen>
         headingAccuracy: 0,
         speed: 0,
         speedAccuracy: 0,
-      );
+      ), '');
     } catch (e) {
       debugPrint('EXIF 오류: $e');
-      return null;
+      return (null, 'EXIF 읽기 오류: $e');
     }
   }
 
@@ -263,13 +276,14 @@ class MapScreenState extends State<MapScreen>
     final file = File(picked.path);
     setState(() => _isLoading = true);
     try {
-      geo.Position? gpsPos = await _extractGpsFromPhoto(file);
+      final (gpsResult, gpsMessage) = await _extractGpsFromPhoto(file);
+      geo.Position? gpsPos = gpsResult;
       if (gpsPos == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('📍 사진에 GPS 정보가 없어 현재 위치를 사용해요'),
-              duration: Duration(seconds: 2),
+            SnackBar(
+              content: Text('📍 $gpsMessage\n현재 위치를 대신 사용해요.'),
+              duration: const Duration(seconds: 4),
             ),
           );
         }
