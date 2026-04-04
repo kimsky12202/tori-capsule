@@ -10,6 +10,7 @@ import 'dart:ui' show ImageByteFormat, PictureRecorder;
 import 'dart:typed_data';
 import 'dart:io';
 import 'dart:math' as math;
+import 'fog_painter.dart';
 
 class CapsulePin {
   final String id;
@@ -496,7 +497,7 @@ class MapScreenState extends State<MapScreen>
           Positioned.fill(
             child: IgnorePointer(
               child: CustomPaint(
-                painter: _NightOverlayPainter(
+                painter: NightOverlayPainter(
                   holes: _holeOffsets,
                   radius: _holeRadius,
                 ),
@@ -530,46 +531,4 @@ class MapScreenState extends State<MapScreen>
       ),
     );
   }
-}
-
-// 핀 위치에 구멍이 뚫린 야간 오버레이
-class _NightOverlayPainter extends CustomPainter {
-  final List<Offset> holes;
-  final double radius;
-
-  const _NightOverlayPainter({required this.holes, required this.radius});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final path = Path()
-      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
-
-    for (final hole in holes) {
-      // 부드러운 그라데이션 경계를 위해 구멍을 살짝 크게
-      path.addOval(Rect.fromCircle(center: hole, radius: radius));
-    }
-    path.fillType = PathFillType.evenOdd;
-
-    canvas.drawPath(
-      path,
-      Paint()..color = const Color(0xCC05101F), // 진한 야간 느낌
-    );
-
-    // 구멍 경계에 부드러운 글로우 효과
-    for (final hole in holes) {
-      canvas.drawCircle(
-        hole,
-        radius,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 30
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 20)
-          ..color = const Color(0x8005101F),
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_NightOverlayPainter old) =>
-      old.holes != holes || old.radius != radius;
 }
