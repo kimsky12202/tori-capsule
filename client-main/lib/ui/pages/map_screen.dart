@@ -155,41 +155,43 @@ class MapScreenState extends State<MapScreen>
     if (mounted) setState(() => _holeShapes = shapes);
   }
 
-  /// Mapbox Tilequery API로 건물 폴리곤 가져오기
+  /// OSM Overpass API로 실제 건물 폴리곤 가져오기
   Future<void> _queryBuildingForPin(CapsulePin pin) async {
     try {
+      // 반경 30m 내 building 태그가 있는 way를 실제 좌표로 가져옴
+      final query =
+          '[out:json];way["building"](around:30,${pin.lat},${pin.lng});out geom;';
       final url = Uri.parse(
-        'https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/tilequery/'
-        '${pin.lng},${pin.lat}.json'
-        '?radius=50&limit=10&dedupe&geometry=polygon&layers=building&access_token=$_token',
+        'https://overpass-api.de/api/interpreter?data=${Uri.encodeComponent(query)}',
       );
-      debugPrint('Tilequery 요청: ${url.toString()}');
-      final response = await http.get(url);
-      debugPrint('Tilequery 응답 코드: ${response.statusCode}');
-      debugPrint('Tilequery 응답 본문: ${response.body}');
-      if (response.statusCode != 200) return;
-
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200) {
+        debugPrint('Overpass 실패: ${response.statusCode}');
+        return;
+      }
       final body = jsonDecode(response.body) as Map<String, dynamic>;
-      final features = body['features'] as List?;
-      debugPrint('Tilequery features 개수: ${features?.length ?? 0}');
-      if (features == null || features.isEmpty) return;
+      final elements = body['elements'] as List?;
+      if (elements == null || elements.isEmpty) {
+        debugPrint('건물 없음 → 원형 사용');
+        return;
+      }
 
-      for (final f in features) {
-        final geometry = (f as Map)['geometry'] as Map?;
-        debugPrint('geometry type: ${geometry?['type']}');
-        if (geometry == null) continue;
-        if (geometry['type'] != 'Polygon') continue;
-        final rings = geometry['coordinates'] as List?;
-        if (rings == null || rings.isEmpty) continue;
-        final ring = (rings.first as List).map((c) {
-          final coord = c as List;
-          return [(coord[0] as num).toDouble(), (coord[1] as num).toDouble()];
+      // 가장 가까운 building way의 geometry 사용
+      for (final el in elements) {
+        final geometry = (el as Map)['geometry'] as List?;
+        if (geometry == null || geometry.length < 3) continue;
+        final polygon = geometry.map((node) {
+          final n = node as Map;
+          return [(n['lon'] as num).toDouble(), (n['lat'] as num).toDouble()];
         }).toList();
-        if (ring.length >= 3) {
-          _buildingPolygons[pin.id] = ring;
-          debugPrint('✅ 건물 폴리곤 저장: ${ring.length}개 꼭짓점');
-          return;
-        }
+        _buildingPolygons[pin.id] = polygon;
+        debugPrint('✅ 건물 폴리곤: ${polygon.length}개 꼭짓점');
+        return;
+      }
+    } catch (e) {
+      debugPrint('건물 쿼리 오류: $e');
+    }
+  }
       }
     } catch (e) {
       debugPrint('건물 쿼리 오류: $e');
