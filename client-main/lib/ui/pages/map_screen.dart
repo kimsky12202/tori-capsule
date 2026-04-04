@@ -482,16 +482,20 @@ class MapScreenState extends State<MapScreen>
       );
       _pins.add(pin);
       await _addMarkerToMap(pin);
-      await _queryBuildingForPin(pin);
       await _savePins();
 
-      _map?.flyTo(
+      // 핀 위치로 카메라 이동 (zoom 16 = 건물 명확히 보임)
+      await _map?.flyTo(
         CameraOptions(
           center: Point(coordinates: Position(gpsPos.longitude, gpsPos.latitude)),
-          zoom: 14.0,
+          zoom: 16.0,
         ),
-        MapAnimationOptions(duration: 800),
+        MapAnimationOptions(duration: 1000),
       );
+
+      // 이동 완료 + 건물 타일 로드 대기 후 건물 쿼리
+      await Future.delayed(const Duration(milliseconds: 800));
+      await _queryBuildingForPin(pin);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('오류: $e')));
