@@ -44,6 +44,11 @@ class NightOverlayPainter extends CustomPainter {
     // 모든 구멍을 하나의 Path로 합침 (겹쳐도 정상)
     final holesPath = Path();
     for (final hole in holes) {
+      // 항상 큰 원을 기본 구멍으로 뚫음 (건물 주변 넓은 범위)
+      holesPath.addOval(
+        Rect.fromCircle(center: hole.center, radius: circleRadius),
+      );
+      // 건물 폴리곤이 있으면 추가로 더 정확한 형태도 합침
       if (hole.polygon != null && hole.polygon!.length >= 3) {
         final poly = Path();
         poly.moveTo(hole.polygon!.first.dx, hole.polygon!.first.dy);
@@ -52,10 +57,6 @@ class NightOverlayPainter extends CustomPainter {
         }
         poly.close();
         holesPath.addPath(poly, Offset.zero);
-      } else {
-        holesPath.addOval(
-          Rect.fromCircle(center: hole.center, radius: circleRadius),
-        );
       }
     }
 
@@ -69,34 +70,17 @@ class NightOverlayPainter extends CustomPainter {
       Paint()..color = const Color(0xCC05101F),
     );
 
-    // 구멍 경계 글로우 (블러 경계만)
+    // 구멍 경계 글로우 (부드러운 블러)
     for (final hole in holes) {
-      if (hole.polygon != null && hole.polygon!.length >= 3) {
-        final poly = Path();
-        poly.moveTo(hole.polygon!.first.dx, hole.polygon!.first.dy);
-        for (final pt in hole.polygon!.skip(1)) {
-          poly.lineTo(pt.dx, pt.dy);
-        }
-        poly.close();
-        canvas.drawPath(
-          poly,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 12
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10)
-            ..color = const Color(0x6005101F),
-        );
-      } else {
-        canvas.drawCircle(
-          hole.center,
-          circleRadius,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 12
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10)
-            ..color = const Color(0x6005101F),
-        );
-      }
+      canvas.drawCircle(
+        hole.center,
+        circleRadius,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 18
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16)
+          ..color = const Color(0x5005101F),
+      );
     }
   }
 

@@ -84,7 +84,7 @@ class MapScreenState extends State<MapScreen>
   bool _isLoading = false;
   bool _tapListenerRegistered = false;
   List<HoleShape> _holeShapes = [];
-  static const double _holeRadius = 140.0;
+  static const double _holeRadius = 300.0;
   static const double _minZoomToShow = 11.0;
 
   @override
