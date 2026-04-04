@@ -397,7 +397,14 @@ class MapScreenState extends State<MapScreen>
     }
   }
 
+  Future<void> _setLightPreset(String preset) async {
+    try {
+      await _map?.style.setStyleImportConfigProperty('basemap', 'lightPreset', preset);
+    } catch (_) {}
+  }
+
   void _showPinSheet(CapsulePin pin) {
+    _setLightPreset('dawn');
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -432,7 +439,7 @@ class MapScreenState extends State<MapScreen>
           ],
         ),
       ),
-    );
+    ).then((_) => _setLightPreset('night')); // 닫으면 야간 모드로 복귀
   }
 
   @override
