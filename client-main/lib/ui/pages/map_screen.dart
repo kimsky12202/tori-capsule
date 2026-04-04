@@ -192,11 +192,6 @@ class MapScreenState extends State<MapScreen>
       debugPrint('건물 쿼리 오류: $e');
     }
   }
-      }
-    } catch (e) {
-      debugPrint('건물 쿼리 오류: $e');
-    }
-  }
 
   // ── 저장/불러오기 ─────────────────────────────────────────
   Future<void> _savePins() async {
