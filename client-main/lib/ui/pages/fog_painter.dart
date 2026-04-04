@@ -53,22 +53,16 @@ class NightOverlayPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final holesPath = Path();
     for (final hole in holes) {
-      if (hole.polygon != null && hole.polygon!.length >= 3) {
-        // 폴리곤을 중심에서 약간 확장 (단지면 1.1x, 개별 건물도 충분히 큼)
-        final expanded = _scalePolygon(hole.polygon!, 1.2);
-        final poly = Path();
-        poly.moveTo(expanded.first.dx, expanded.first.dy);
-        for (final pt in expanded.skip(1)) {
-          poly.lineTo(pt.dx, pt.dy);
-        }
-        poly.close();
-        holesPath.addPath(poly, Offset.zero);
-      } else {
-        // 건물 정보 없으면 원형
-        holesPath.addOval(
-          Rect.fromCircle(center: hole.center, radius: circleRadius),
-        );
+      // 폴리곤이 있을 때만 뚫음 (원형 fallback 없음)
+      if (hole.polygon == null || hole.polygon!.length < 3) continue;
+      final expanded = _scalePolygon(hole.polygon!, 1.2);
+      final poly = Path();
+      poly.moveTo(expanded.first.dx, expanded.first.dy);
+      for (final pt in expanded.skip(1)) {
+        poly.lineTo(pt.dx, pt.dy);
       }
+      poly.close();
+      holesPath.addPath(poly, Offset.zero);
     }
 
     final overlay = Path()
@@ -80,35 +74,24 @@ class NightOverlayPainter extends CustomPainter {
       Paint()..color = const Color(0xCC05101F),
     );
 
-    // 경계 글로우
+    // 경계 글로우 (폴리곤 있는 것만)
     for (final hole in holes) {
-      if (hole.polygon != null && hole.polygon!.length >= 3) {
-        final expanded = _scalePolygon(hole.polygon!, 1.2);
-        final poly = Path();
-        poly.moveTo(expanded.first.dx, expanded.first.dy);
-        for (final pt in expanded.skip(1)) {
-          poly.lineTo(pt.dx, pt.dy);
-        }
-        poly.close();
-        canvas.drawPath(
-          poly,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 18
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16)
-            ..color = const Color(0x5005101F),
-        );
-      } else {
-        canvas.drawCircle(
-          hole.center,
-          circleRadius,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 18
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16)
-            ..color = const Color(0x5005101F),
-        );
+      if (hole.polygon == null || hole.polygon!.length < 3) continue;
+      final expanded = _scalePolygon(hole.polygon!, 1.2);
+      final poly = Path();
+      poly.moveTo(expanded.first.dx, expanded.first.dy);
+      for (final pt in expanded.skip(1)) {
+        poly.lineTo(pt.dx, pt.dy);
       }
+      poly.close();
+      canvas.drawPath(
+        poly,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 18
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16)
+          ..color = const Color(0x5005101F),
+      );
     }
   }
 
