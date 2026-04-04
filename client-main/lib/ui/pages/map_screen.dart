@@ -75,9 +75,13 @@ class MapScreenState extends State<MapScreen>
   final Map<String, String> _markerMap = {};
   final img_picker.ImagePicker _picker = img_picker.ImagePicker();
   StreamSubscription<geo.Position>? _posSub;
+  Timer? _overlayTimer;
 
   bool _isLoading = false;
   bool _tapListenerRegistered = false;
+  List<Offset> _holeOffsets = [];
+  static const double _holeRadius = 140.0;
+  static const double _minZoomToShow = 11.0;
 
   @override
   bool get wantKeepAlive => true;
@@ -91,7 +95,44 @@ class MapScreenState extends State<MapScreen>
   @override
   void dispose() {
     _posSub?.cancel();
+    _overlayTimer?.cancel();
     super.dispose();
+  }
+
+  // ── 핀 위치 → 화면 좌표 변환 (오버레이 구멍) ────────────────
+  void _startOverlayTimer() {
+    _overlayTimer?.cancel();
+    _overlayTimer = Timer.periodic(
+      const Duration(milliseconds: 100),
+      (_) => _updateHoleOffsets(),
+    );
+  }
+
+  Future<void> _updateHoleOffsets() async {
+    if (_map == null || _pins.isEmpty) {
+      if (_holeOffsets.isNotEmpty && mounted) {
+        setState(() => _holeOffsets = []);
+      }
+      return;
+    }
+    double zoom = 0;
+    try { zoom = (await _map!.getCameraState()).zoom; } catch (_) {}
+
+    if (zoom < _minZoomToShow) {
+      if (mounted) setState(() => _holeOffsets = []);
+      return;
+    }
+
+    final offsets = <Offset>[];
+    for (final pin in _pins) {
+      try {
+        final sc = await _map!.pixelForCoordinate(
+          Point(coordinates: Position(pin.lng, pin.lat)),
+        );
+        offsets.add(Offset(sc.x, sc.y));
+      } catch (_) {}
+    }
+    if (mounted) setState(() => _holeOffsets = offsets);
   }
 
   // ── 저장/불러오기 ─────────────────────────────────────────
@@ -151,9 +192,10 @@ class MapScreenState extends State<MapScreen>
     await _moveToMyLocation();
     _startTracking();
     await _loadPins();
-    // 야간 모드 적용
+    _startOverlayTimer();
+    // 아침 모드 (오버레이로 핀 없는 곳을 어둡게)
     try {
-      await map.style.setStyleImportConfigProperty('basemap', 'lightPreset', 'night');
+      await map.style.setStyleImportConfigProperty('basemap', 'lightPreset', 'dawn');
     } catch (_) {}
   }
 
@@ -397,14 +439,7 @@ class MapScreenState extends State<MapScreen>
     }
   }
 
-  Future<void> _setLightPreset(String preset) async {
-    try {
-      await _map?.style.setStyleImportConfigProperty('basemap', 'lightPreset', preset);
-    } catch (_) {}
-  }
-
   void _showPinSheet(CapsulePin pin) {
-    _setLightPreset('dawn');
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -439,7 +474,7 @@ class MapScreenState extends State<MapScreen>
           ],
         ),
       ),
-    ).then((_) => _setLightPreset('night')); // 닫으면 야간 모드로 복귀
+    );
   }
 
   @override
@@ -456,6 +491,17 @@ class MapScreenState extends State<MapScreen>
               zoom: 6.0,
             ),
             onMapCreated: _onMapCreated,
+          ),
+          // 핀 근처만 아침처럼, 나머지는 야간처럼 보이는 오버레이
+          Positioned.fill(
+            child: IgnorePointer(
+              child: CustomPaint(
+                painter: _NightOverlayPainter(
+                  holes: _holeOffsets,
+                  radius: _holeRadius,
+                ),
+              ),
+            ),
           ),
           if (_isLoading)
             Container(
@@ -484,4 +530,46 @@ class MapScreenState extends State<MapScreen>
       ),
     );
   }
+}
+
+// 핀 위치에 구멍이 뚫린 야간 오버레이
+class _NightOverlayPainter extends CustomPainter {
+  final List<Offset> holes;
+  final double radius;
+
+  const _NightOverlayPainter({required this.holes, required this.radius});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+
+    for (final hole in holes) {
+      // 부드러운 그라데이션 경계를 위해 구멍을 살짝 크게
+      path.addOval(Rect.fromCircle(center: hole, radius: radius));
+    }
+    path.fillType = PathFillType.evenOdd;
+
+    canvas.drawPath(
+      path,
+      Paint()..color = const Color(0xCC05101F), // 진한 야간 느낌
+    );
+
+    // 구멍 경계에 부드러운 글로우 효과
+    for (final hole in holes) {
+      canvas.drawCircle(
+        hole,
+        radius,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 30
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 20)
+          ..color = const Color(0x8005101F),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_NightOverlayPainter old) =>
+      old.holes != holes || old.radius != radius;
 }
