@@ -161,22 +161,22 @@ class MapScreenState extends State<MapScreen>
       final url = Uri.parse(
         'https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/tilequery/'
         '${pin.lng},${pin.lat}.json'
-        '?radius=30&limit=10&dedupe&geometry=polygon&layers=building&access_token=$_token',
+        '?radius=50&limit=10&dedupe&geometry=polygon&layers=building&access_token=$_token',
       );
+      debugPrint('Tilequery 요청: ${url.toString()}');
       final response = await http.get(url);
-      if (response.statusCode != 200) {
-        debugPrint('Tilequery 실패: ${response.statusCode}');
-        return;
-      }
+      debugPrint('Tilequery 응답 코드: ${response.statusCode}');
+      debugPrint('Tilequery 응답 본문: ${response.body}');
+      if (response.statusCode != 200) return;
+
       final body = jsonDecode(response.body) as Map<String, dynamic>;
       final features = body['features'] as List?;
-      if (features == null || features.isEmpty) {
-        debugPrint('건물 없음 → 원형 사용');
-        return;
-      }
+      debugPrint('Tilequery features 개수: ${features?.length ?? 0}');
+      if (features == null || features.isEmpty) return;
 
       for (final f in features) {
         final geometry = (f as Map)['geometry'] as Map?;
+        debugPrint('geometry type: ${geometry?['type']}');
         if (geometry == null) continue;
         if (geometry['type'] != 'Polygon') continue;
         final rings = geometry['coordinates'] as List?;
@@ -187,7 +187,7 @@ class MapScreenState extends State<MapScreen>
         }).toList();
         if (ring.length >= 3) {
           _buildingPolygons[pin.id] = ring;
-          debugPrint('건물 폴리곤: ${ring.length}개 꼭짓점');
+          debugPrint('✅ 건물 폴리곤 저장: ${ring.length}개 꼭짓점');
           return;
         }
       }
