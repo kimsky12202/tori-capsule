@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart' as geo;
 import 'package:image_picker/image_picker.dart' as img_picker;
 import 'package:exif/exif.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
 import 'dart:ui' show ImageByteFormat, PictureRecorder;
@@ -154,42 +155,42 @@ class MapScreenState extends State<MapScreen>
     if (mounted) setState(() => _holeShapes = shapes);
   }
 
-  /// 핀 위치에서 건물 폴리곤 쿼리 (없으면 원형 fallback)
+  /// Mapbox Tilequery API로 건물 폴리곤 가져오기
   Future<void> _queryBuildingForPin(CapsulePin pin) async {
-    if (_map == null) return;
     try {
-      final sc = await _map!.pixelForCoordinate(
-        Point(coordinates: Position(pin.lng, pin.lat)),
+      final url = Uri.parse(
+        'https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/tilequery/'
+        '${pin.lng},${pin.lat}.json'
+        '?radius=30&limit=10&dedupe&geometry=polygon&layers=building&access_token=$_token',
       );
-      final features = await _map!.queryRenderedFeatures(
-        RenderedQueryGeometry.fromScreenBox(
-          ScreenBox(
-            min: ScreenCoordinate(x: sc.x - 5, y: sc.y - 5),
-            max: ScreenCoordinate(x: sc.x + 5, y: sc.y + 5),
-          ),
-        ),
-        RenderedQueryOptions(layerIds: ['building', 'building-extrusion'], filter: null),
-      );
+      final response = await http.get(url);
+      if (response.statusCode != 200) {
+        debugPrint('Tilequery 실패: ${response.statusCode}');
+        return;
+      }
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      final features = body['features'] as List?;
+      if (features == null || features.isEmpty) {
+        debugPrint('건물 없음 → 원형 사용');
+        return;
+      }
 
-      for (final qf in features) {
-        final geometry = qf?.queriedFeature.feature['geometry'];
+      for (final f in features) {
+        final geometry = (f as Map)['geometry'] as Map?;
         if (geometry == null) continue;
-        final geoMap = geometry as Map?;
-        if (geoMap == null || geoMap['type'] != 'Polygon') continue;
-        final rings = geoMap['coordinates'] as List?;
+        if (geometry['type'] != 'Polygon') continue;
+        final rings = geometry['coordinates'] as List?;
         if (rings == null || rings.isEmpty) continue;
-        final ring = rings.first as List;
-        final polygon = ring.map((c) {
+        final ring = (rings.first as List).map((c) {
           final coord = c as List;
           return [(coord[0] as num).toDouble(), (coord[1] as num).toDouble()];
         }).toList();
-        if (polygon.length >= 3) {
-          _buildingPolygons[pin.id] = polygon;
-          debugPrint('건물 폴리곤 발견: ${polygon.length}개 꼭짓점');
+        if (ring.length >= 3) {
+          _buildingPolygons[pin.id] = ring;
+          debugPrint('건물 폴리곤: ${ring.length}개 꼭짓점');
           return;
         }
       }
-      debugPrint('건물 없음 → 원형 사용');
     } catch (e) {
       debugPrint('건물 쿼리 오류: $e');
     }

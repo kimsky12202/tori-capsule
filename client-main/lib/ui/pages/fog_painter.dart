@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-/// 구멍 모양: polygon이 있으면 건물 형태, 없으면 원형 fallback
 class HoleShape {
   final Offset center;
   final List<Offset>? polygon;
@@ -42,34 +41,35 @@ class NightOverlayPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final path = Path()
-      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
-
+    // 모든 구멍을 하나의 Path로 합침 (겹쳐도 정상)
+    final holesPath = Path();
     for (final hole in holes) {
       if (hole.polygon != null && hole.polygon!.length >= 3) {
-        // 건물 폴리곤 모양으로 구멍
         final poly = Path();
         poly.moveTo(hole.polygon!.first.dx, hole.polygon!.first.dy);
         for (final pt in hole.polygon!.skip(1)) {
           poly.lineTo(pt.dx, pt.dy);
         }
         poly.close();
-        path.addPath(poly, Offset.zero);
+        holesPath.addPath(poly, Offset.zero);
       } else {
-        // 폴리곤 없으면 원형 fallback
-        path.addOval(
+        holesPath.addOval(
           Rect.fromCircle(center: hole.center, radius: circleRadius),
         );
       }
     }
-    path.fillType = PathFillType.evenOdd;
+
+    // 전체 오버레이에서 구멍을 뺌 (겹침 문제 해결)
+    final overlay = Path()
+      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+    final result = Path.combine(PathOperation.difference, overlay, holesPath);
 
     canvas.drawPath(
-      path,
+      result,
       Paint()..color = const Color(0xCC05101F),
     );
 
-    // 구멍 경계 블러 글로우
+    // 구멍 경계 글로우 (블러 경계만)
     for (final hole in holes) {
       if (hole.polygon != null && hole.polygon!.length >= 3) {
         final poly = Path();
@@ -82,9 +82,9 @@ class NightOverlayPainter extends CustomPainter {
           poly,
           Paint()
             ..style = PaintingStyle.stroke
-            ..strokeWidth = 20
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 15)
-            ..color = const Color(0x8005101F),
+            ..strokeWidth = 12
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10)
+            ..color = const Color(0x6005101F),
         );
       } else {
         canvas.drawCircle(
@@ -92,9 +92,9 @@ class NightOverlayPainter extends CustomPainter {
           circleRadius,
           Paint()
             ..style = PaintingStyle.stroke
-            ..strokeWidth = 30
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 20)
-            ..color = const Color(0x8005101F),
+            ..strokeWidth = 12
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10)
+            ..color = const Color(0x6005101F),
         );
       }
     }
