@@ -162,15 +162,14 @@ class MapScreenState extends State<MapScreen>
         Point(coordinates: Position(pin.lng, pin.lat)),
       );
       final features = await _map!.queryRenderedFeatures(
-        RenderedQueryGeometry(
-          value: jsonEncode({'x': sc.x, 'y': sc.y}),
-          type: Type.SCREEN_COORDINATE,
+        RenderedQueryGeometry.fromScreenCoordinated(
+          ScreenCoordinate(x: sc.x, y: sc.y),
         ),
         RenderedQueryOptions(layerIds: ['building', 'building-extrusion'], filter: null),
       );
 
       for (final qf in features) {
-        final geometry = qf.queriedFeature.feature['geometry'];
+        final geometry = qf?.queriedFeature?.feature['geometry'];
         if (geometry == null) continue;
         final geoMap = geometry as Map?;
         if (geoMap == null || geoMap['type'] != 'Polygon') continue;
