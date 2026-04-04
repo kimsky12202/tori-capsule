@@ -184,9 +184,33 @@ class MapScreenState extends State<MapScreen>
     }
 
     try {
-      // 1단계: 해당 좌표를 포함하는 아파트 단지(landuse=residential) 경계
+      final lat = pin.lat, lng = pin.lng;
+
+      // 1단계: 관광지 / 공원 / 유적지 경계
+      final tourQ =
+          '[out:json];is_in($lat,$lng)->.a;'
+          '(way["tourism"](pivot.a);'
+          'way["leisure"="park"](pivot.a);'
+          'way["leisure"="nature_reserve"](pivot.a);'
+          'way["historic"](pivot.a);'
+          'way["amenity"="university"](pivot.a);'
+          'relation["tourism"](pivot.a);'
+          'relation["leisure"="park"](pivot.a);'
+          'relation["historic"](pivot.a););'
+          'out geom;';
+      final tourBody = await query(tourQ);
+      if (tourBody != null) {
+        final polygon = _extractPolygon(tourBody);
+        if (polygon != null) {
+          _buildingPolygons[pin.id] = polygon;
+          debugPrint('✅ 관광지/공원 폴리곤: ${polygon.length}개 꼭짓점');
+          return;
+        }
+      }
+
+      // 2단계: 아파트 단지(landuse=residential) 경계
       final complexQ =
-          '[out:json];is_in(${pin.lat},${pin.lng})->.a;'
+          '[out:json];is_in($lat,$lng)->.a;'
           '(way["landuse"="residential"](pivot.a);'
           'way["landuse"="apartments"](pivot.a););'
           'out geom;';
@@ -200,9 +224,9 @@ class MapScreenState extends State<MapScreen>
         }
       }
 
-      // 2단계: 단지 경계 없으면 반경 30m 내 개별 건물
+      // 3단계: 반경 30m 내 개별 건물
       final buildingQ =
-          '[out:json];way["building"](around:30,${pin.lat},${pin.lng});out geom;';
+          '[out:json];way["building"](around:30,$lat,$lng);out geom;';
       final buildingBody = await query(buildingQ);
       if (buildingBody != null) {
         final polygon = _extractPolygon(buildingBody);
@@ -213,7 +237,7 @@ class MapScreenState extends State<MapScreen>
         }
       }
 
-      debugPrint('건물/단지 없음 → 원형 사용');
+      debugPrint('폴리곤 없음 → 오버레이 유지');
     } catch (e) {
       debugPrint('건물 쿼리 오류: $e');
     }
