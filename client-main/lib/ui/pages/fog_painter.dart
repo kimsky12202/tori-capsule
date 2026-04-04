@@ -1,5 +1,12 @@
 import 'package:flutter/material.dart';
 
+/// 구멍 모양: polygon이 있으면 건물 형태, 없으면 원형 fallback
+class HoleShape {
+  final Offset center;
+  final List<Offset>? polygon;
+  HoleShape({required this.center, this.polygon});
+}
+
 class FogPainter extends CustomPainter {
   final List<Offset> holes;
   final double radius;
@@ -28,10 +35,10 @@ class FogPainter extends CustomPainter {
 }
 
 class NightOverlayPainter extends CustomPainter {
-  final List<Offset> holes;
-  final double radius;
+  final List<HoleShape> holes;
+  final double circleRadius;
 
-  NightOverlayPainter({required this.holes, required this.radius});
+  NightOverlayPainter({required this.holes, required this.circleRadius});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -39,7 +46,21 @@ class NightOverlayPainter extends CustomPainter {
       ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
 
     for (final hole in holes) {
-      path.addOval(Rect.fromCircle(center: hole, radius: radius));
+      if (hole.polygon != null && hole.polygon!.length >= 3) {
+        // 건물 폴리곤 모양으로 구멍
+        final poly = Path();
+        poly.moveTo(hole.polygon!.first.dx, hole.polygon!.first.dy);
+        for (final pt in hole.polygon!.skip(1)) {
+          poly.lineTo(pt.dx, pt.dy);
+        }
+        poly.close();
+        path.addPath(poly, Offset.zero);
+      } else {
+        // 폴리곤 없으면 원형 fallback
+        path.addOval(
+          Rect.fromCircle(center: hole.center, radius: circleRadius),
+        );
+      }
     }
     path.fillType = PathFillType.evenOdd;
 
@@ -50,19 +71,36 @@ class NightOverlayPainter extends CustomPainter {
 
     // 구멍 경계 블러 글로우
     for (final hole in holes) {
-      canvas.drawCircle(
-        hole,
-        radius,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 30
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 20)
-          ..color = const Color(0x8005101F),
-      );
+      if (hole.polygon != null && hole.polygon!.length >= 3) {
+        final poly = Path();
+        poly.moveTo(hole.polygon!.first.dx, hole.polygon!.first.dy);
+        for (final pt in hole.polygon!.skip(1)) {
+          poly.lineTo(pt.dx, pt.dy);
+        }
+        poly.close();
+        canvas.drawPath(
+          poly,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 20
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 15)
+            ..color = const Color(0x8005101F),
+        );
+      } else {
+        canvas.drawCircle(
+          hole.center,
+          circleRadius,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 30
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 20)
+            ..color = const Color(0x8005101F),
+        );
+      }
     }
   }
 
   @override
   bool shouldRepaint(NightOverlayPainter old) =>
-      old.holes != holes || old.radius != radius;
+      old.holes != holes || old.circleRadius != circleRadius;
 }

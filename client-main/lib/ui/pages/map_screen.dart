@@ -74,13 +74,15 @@ class MapScreenState extends State<MapScreen>
 
   final List<CapsulePin> _pins = [];
   final Map<String, String> _markerMap = {};
+  // 핀ID → 건물 GeoJSON 좌표 [[lng,lat], ...]
+  final Map<String, List<List<double>>> _buildingPolygons = {};
   final img_picker.ImagePicker _picker = img_picker.ImagePicker();
   StreamSubscription<geo.Position>? _posSub;
   Timer? _overlayTimer;
 
   bool _isLoading = false;
   bool _tapListenerRegistered = false;
-  List<Offset> _holeOffsets = [];
+  List<HoleShape> _holeShapes = [];
   static const double _holeRadius = 140.0;
   static const double _minZoomToShow = 11.0;
 
@@ -111,29 +113,84 @@ class MapScreenState extends State<MapScreen>
 
   Future<void> _updateHoleOffsets() async {
     if (_map == null || _pins.isEmpty) {
-      if (_holeOffsets.isNotEmpty && mounted) {
-        setState(() => _holeOffsets = []);
-      }
+      if (_holeShapes.isNotEmpty && mounted) setState(() => _holeShapes = []);
       return;
     }
     double zoom = 0;
     try { zoom = (await _map!.getCameraState()).zoom; } catch (_) {}
 
     if (zoom < _minZoomToShow) {
-      if (mounted) setState(() => _holeOffsets = []);
+      if (mounted) setState(() => _holeShapes = []);
       return;
     }
 
-    final offsets = <Offset>[];
+    final shapes = <HoleShape>[];
     for (final pin in _pins) {
       try {
         final sc = await _map!.pixelForCoordinate(
           Point(coordinates: Position(pin.lng, pin.lat)),
         );
-        offsets.add(Offset(sc.x, sc.y));
+        final center = Offset(sc.x, sc.y);
+
+        // 건물 폴리곤이 있으면 화면 좌표로 변환
+        final geoPolygon = _buildingPolygons[pin.id];
+        List<Offset>? screenPolygon;
+        if (geoPolygon != null) {
+          final pts = <Offset>[];
+          for (final coord in geoPolygon) {
+            try {
+              final pt = await _map!.pixelForCoordinate(
+                Point(coordinates: Position(coord[0], coord[1])),
+              );
+              pts.add(Offset(pt.x, pt.y));
+            } catch (_) {}
+          }
+          if (pts.length >= 3) screenPolygon = pts;
+        }
+
+        shapes.add(HoleShape(center: center, polygon: screenPolygon));
       } catch (_) {}
     }
-    if (mounted) setState(() => _holeOffsets = offsets);
+    if (mounted) setState(() => _holeShapes = shapes);
+  }
+
+  /// 핀 위치에서 건물 폴리곤 쿼리 (없으면 원형 fallback)
+  Future<void> _queryBuildingForPin(CapsulePin pin) async {
+    if (_map == null) return;
+    try {
+      final sc = await _map!.pixelForCoordinate(
+        Point(coordinates: Position(pin.lng, pin.lat)),
+      );
+      final features = await _map!.queryRenderedFeatures(
+        RenderedQueryGeometry(
+          value: jsonEncode({'x': sc.x, 'y': sc.y}),
+          type: Type.SCREEN_COORDINATE,
+        ),
+        RenderedQueryOptions(layerIds: ['building', 'building-extrusion'], filter: null),
+      );
+
+      for (final qf in features) {
+        final geometry = qf.queriedFeature.feature['geometry'];
+        if (geometry == null) continue;
+        final geoMap = geometry as Map?;
+        if (geoMap == null || geoMap['type'] != 'Polygon') continue;
+        final rings = geoMap['coordinates'] as List?;
+        if (rings == null || rings.isEmpty) continue;
+        final ring = rings.first as List;
+        final polygon = ring.map((c) {
+          final coord = c as List;
+          return [(coord[0] as num).toDouble(), (coord[1] as num).toDouble()];
+        }).toList();
+        if (polygon.length >= 3) {
+          _buildingPolygons[pin.id] = polygon;
+          debugPrint('건물 폴리곤 발견: ${polygon.length}개 꼭짓점');
+          return;
+        }
+      }
+      debugPrint('건물 없음 → 원형 사용');
+    } catch (e) {
+      debugPrint('건물 쿼리 오류: $e');
+    }
   }
 
   // ── 저장/불러오기 ─────────────────────────────────────────
@@ -153,6 +210,7 @@ class MapScreenState extends State<MapScreen>
         if (pin.photoPath == null || File(pin.photoPath!).existsSync()) {
           _pins.add(pin);
           await _addMarkerToMap(pin);
+          await _queryBuildingForPin(pin);
         }
       } catch (_) {}
     }
@@ -422,6 +480,7 @@ class MapScreenState extends State<MapScreen>
       );
       _pins.add(pin);
       await _addMarkerToMap(pin);
+      await _queryBuildingForPin(pin);
       await _savePins();
 
       _map?.flyTo(
@@ -498,8 +557,8 @@ class MapScreenState extends State<MapScreen>
             child: IgnorePointer(
               child: CustomPaint(
                 painter: NightOverlayPainter(
-                  holes: _holeOffsets,
-                  radius: _holeRadius,
+                  holes: _holeShapes,
+                  circleRadius: _holeRadius,
                 ),
               ),
             ),
