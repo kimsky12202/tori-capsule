@@ -151,6 +151,10 @@ class MapScreenState extends State<MapScreen>
     await _moveToMyLocation();
     _startTracking();
     await _loadPins();
+    // 야간 모드 적용
+    try {
+      await map.style.setStyleImportConfigProperty('basemap', 'lightPreset', 'night');
+    } catch (_) {}
   }
 
   Future<void> _moveToMyLocation() async {
