@@ -155,39 +155,65 @@ class MapScreenState extends State<MapScreen>
     if (mounted) setState(() => _holeShapes = shapes);
   }
 
-  /// OSM Overpass API로 실제 건물 폴리곤 가져오기
+  /// 좌표를 포함하는 OSM 폴리곤 geometry 추출 헬퍼
+  List<List<double>>? _extractPolygon(Map<String, dynamic> body) {
+    final elements = body['elements'] as List?;
+    if (elements == null || elements.isEmpty) return null;
+    for (final el in elements) {
+      final geometry = (el as Map)['geometry'] as List?;
+      if (geometry == null || geometry.length < 3) continue;
+      return geometry.map((node) {
+        final n = node as Map;
+        return [(n['lon'] as num).toDouble(), (n['lat'] as num).toDouble()];
+      }).toList();
+    }
+    return null;
+  }
+
+  /// OSM Overpass API로 아파트 단지 → 개별 건물 순으로 폴리곤 가져오기
   Future<void> _queryBuildingForPin(CapsulePin pin) async {
+    Future<Map<String, dynamic>?> query(String q) async {
+      try {
+        final url = Uri.parse(
+          'https://overpass-api.de/api/interpreter?data=${Uri.encodeComponent(q)}',
+        );
+        final res = await http.get(url).timeout(const Duration(seconds: 10));
+        if (res.statusCode == 200) return jsonDecode(res.body) as Map<String, dynamic>;
+      } catch (_) {}
+      return null;
+    }
+
     try {
-      // 반경 30m 내 building 태그가 있는 way를 실제 좌표로 가져옴
-      final query =
-          '[out:json];way["building"](around:30,${pin.lat},${pin.lng});out geom;';
-      final url = Uri.parse(
-        'https://overpass-api.de/api/interpreter?data=${Uri.encodeComponent(query)}',
-      );
-      final response = await http.get(url).timeout(const Duration(seconds: 10));
-      if (response.statusCode != 200) {
-        debugPrint('Overpass 실패: ${response.statusCode}');
-        return;
-      }
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      final elements = body['elements'] as List?;
-      if (elements == null || elements.isEmpty) {
-        debugPrint('건물 없음 → 원형 사용');
-        return;
+      // 1단계: 해당 좌표를 포함하는 아파트 단지(landuse=residential) 경계
+      final complexQ =
+          '[out:json];is_in(${pin.lat},${pin.lng})->.a;'
+          '(way["landuse"="residential"](pivot.a);'
+          'way["landuse"="apartments"](pivot.a););'
+          'out geom;';
+      final complexBody = await query(complexQ);
+      if (complexBody != null) {
+        final polygon = _extractPolygon(complexBody);
+        if (polygon != null) {
+          _buildingPolygons[pin.id] = polygon;
+          debugPrint('✅ 아파트 단지 폴리곤: ${polygon.length}개 꼭짓점');
+          return;
+        }
       }
 
-      // 가장 가까운 building way의 geometry 사용
-      for (final el in elements) {
-        final geometry = (el as Map)['geometry'] as List?;
-        if (geometry == null || geometry.length < 3) continue;
-        final polygon = geometry.map((node) {
-          final n = node as Map;
-          return [(n['lon'] as num).toDouble(), (n['lat'] as num).toDouble()];
-        }).toList();
-        _buildingPolygons[pin.id] = polygon;
-        debugPrint('✅ 건물 폴리곤: ${polygon.length}개 꼭짓점');
-        return;
+      // 2단계: 단지 경계 없으면 반경 30m 내 개별 건물
+      final buildingQ =
+          '[out:json];way["building"](around:30,${pin.lat},${pin.lng});out geom;';
+      final buildingBody = await query(buildingQ);
+      if (buildingBody != null) {
+        final polygon = _extractPolygon(buildingBody);
+        if (polygon != null) {
+          _buildingPolygons[pin.id] = polygon;
+          debugPrint('✅ 개별 건물 폴리곤: ${polygon.length}개 꼭짓점');
+          return;
+        }
       }
+
+      debugPrint('건물/단지 없음 → 원형 사용');
     } catch (e) {
       debugPrint('건물 쿼리 오류: $e');
     }

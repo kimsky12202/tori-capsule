@@ -54,8 +54,8 @@ class NightOverlayPainter extends CustomPainter {
     final holesPath = Path();
     for (final hole in holes) {
       if (hole.polygon != null && hole.polygon!.length >= 3) {
-        // 건물 폴리곤을 중심에서 4배 확장
-        final expanded = _scalePolygon(hole.polygon!, 4.0);
+        // 폴리곤을 중심에서 약간 확장 (단지면 1.1x, 개별 건물도 충분히 큼)
+        final expanded = _scalePolygon(hole.polygon!, 1.2);
         final poly = Path();
         poly.moveTo(expanded.first.dx, expanded.first.dy);
         for (final pt in expanded.skip(1)) {
@@ -83,7 +83,7 @@ class NightOverlayPainter extends CustomPainter {
     // 경계 글로우
     for (final hole in holes) {
       if (hole.polygon != null && hole.polygon!.length >= 3) {
-        final expanded = _scalePolygon(hole.polygon!, 4.0);
+        final expanded = _scalePolygon(hole.polygon!, 1.2);
         final poly = Path();
         poly.moveTo(expanded.first.dx, expanded.first.dy);
         for (final pt in expanded.skip(1)) {
