@@ -106,6 +106,12 @@ class MapScreenState extends State<MapScreen>
   Future<void> _initOverlayLayer() async {
     if (_map == null) return;
     try {
+      // 이미 존재하면 데이터만 업데이트
+      final exists = await _map!.style.styleLayerExists(_overlayLayerId);
+      if (exists) {
+        await _updateOverlay();
+        return;
+      }
       await _map!.style.addSource(GeoJsonSource(
         id: _overlaySourceId,
         data: jsonEncode(_buildOverlayGeoJson()),
@@ -330,13 +336,23 @@ class MapScreenState extends State<MapScreen>
         quickZoomEnabled: true,
       ),
     );
-    await _moveToMyLocation();
-    _startTracking();
-    await _initOverlayLayer();
-    await _loadPins();
+    // lightPreset을 먼저 설정 (이후 스타일 변경이 커스텀 레이어를 지우지 않도록)
     try {
       await map.style.setStyleImportConfigProperty('basemap', 'lightPreset', 'dawn');
     } catch (_) {}
+    await _initOverlayLayer();
+    await _moveToMyLocation();
+    _startTracking();
+    await _loadPins();
+  }
+
+  /// 스타일이 재로드될 때마다 오버레이 레이어 복구
+  Future<void> _onStyleLoaded(StyleLoadedEventData _) async {
+    try {
+      await _map?.style.setStyleImportConfigProperty('basemap', 'lightPreset', 'dawn');
+    } catch (_) {}
+    await _initOverlayLayer();
+    await _updateOverlay();
   }
 
   Future<void> _moveToMyLocation() async {
@@ -674,6 +690,7 @@ class MapScreenState extends State<MapScreen>
               zoom: 6.0,
             ),
             onMapCreated: _onMapCreated,
+            onStyleLoadedListener: _onStyleLoaded,
           ),
           // 오버레이는 Mapbox FillLayer로 처리 (줌/패닝에 완전히 안정적)
           if (_isLoading)
