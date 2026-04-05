@@ -132,19 +132,32 @@ class MapScreenState extends State<MapScreen>
     }
   }
 
-  /// 전 세계 외부링 + 각 핀 폴리곤을 구멍으로 하는 GeoJSON 생성
+  /// 전 세계 외부링(CCW) + 핀 폴리곤을 구멍(CW)으로 하는 GeoJSON 생성
   Map<String, dynamic> _buildOverlayGeoJson() {
     final rings = <List<List<double>>>[
-      // 외부 링: 전 세계를 반시계방향으로 덮음
-      [[-180.0,-85.0],[180.0,-85.0],[180.0,85.0],[-180.0,85.0],[-180.0,-85.0]],
+      // 외부 링: CCW (반시계방향) → Mapbox right-hand rule 준수
+      [[-180.0,-85.0],[-180.0,85.0],[180.0,85.0],[180.0,-85.0],[-180.0,-85.0]],
     ];
     for (final polygon in _buildingPolygons.values) {
-      if (polygon.length >= 3) rings.add(polygon);
+      if (polygon.length >= 3) {
+        // 홀 링은 CW(시계방향)이어야 겹쳐도 밝은 영역 유지
+        rings.add(_toClockwise(polygon));
+      }
     }
     return {
       'type': 'Feature',
       'geometry': {'type': 'Polygon', 'coordinates': rings},
     };
+  }
+
+  /// 링을 시계방향(CW)으로 보장 (GeoJSON 홀 링 요건)
+  List<List<double>> _toClockwise(List<List<double>> ring) {
+    double area = 0;
+    for (int i = 0; i < ring.length - 1; i++) {
+      area += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1];
+    }
+    // area > 0 → CCW → 뒤집어서 CW로
+    return area > 0 ? ring.reversed.toList() : ring;
   }
 
   /// 좌표를 포함하는 OSM 폴리곤 geometry 추출 헬퍼
@@ -265,7 +278,7 @@ class MapScreenState extends State<MapScreen>
 
   Future<void> _loadPins() async {
     final prefs = await SharedPreferences.getInstance();
-    await _loadPolygons(); // 캐시된 폴리곤 먼저 로드
+    await _loadPolygons();
     final list = prefs.getStringList(_prefsKey) ?? [];
     for (final raw in list) {
       try {
@@ -273,16 +286,16 @@ class MapScreenState extends State<MapScreen>
         if (pin.photoPath == null || File(pin.photoPath!).existsSync()) {
           _pins.add(pin);
           await _addMarkerToMap(pin);
-          // 캐시에 없는 핀만 Overpass 쿼리 (핀 간 2초 간격으로 rate limit 방지)
           if (!_buildingPolygons.containsKey(pin.id)) {
             await Future.delayed(const Duration(seconds: 2));
             await _queryBuildingForPin(pin);
             await _savePolygons();
           }
-          await _updateOverlay();
         }
       } catch (_) {}
     }
+    // 모든 핀 로드 완료 후 한 번만 업데이트 (핀마다 호출하면 깜빡임)
+    await _updateOverlay();
   }
 
   Future<void> _addMarkerToMap(CapsulePin pin) async {
