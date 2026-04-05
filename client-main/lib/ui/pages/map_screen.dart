@@ -180,21 +180,25 @@ class MapScreenState extends State<MapScreen>
     final lat = pin.lat, lng = pin.lng;
 
     Future<Map<String, dynamic>?> overpassGet(String q) async {
-      try {
-        final url = Uri.parse(
-          'https://overpass-api.de/api/interpreter?data=${Uri.encodeComponent(q)}',
-        );
-        final res = await http.get(url).timeout(const Duration(seconds: 15));
-        if (res.statusCode == 200) return jsonDecode(res.body) as Map<String, dynamic>;
-        if (res.statusCode == 429) {
-          debugPrint('Overpass 429 rate limit → 5초 후 재시도');
-          await Future.delayed(const Duration(seconds: 5));
-          final retry = await http.get(url).timeout(const Duration(seconds: 15));
-          if (retry.statusCode == 200) return jsonDecode(retry.body) as Map<String, dynamic>;
-          debugPrint('Overpass 재시도도 실패: ${retry.statusCode}');
+      final url = Uri.parse(
+        'https://overpass-api.de/api/interpreter?data=${Uri.encodeComponent(q)}',
+      );
+      for (int attempt = 1; attempt <= 3; attempt++) {
+        try {
+          final res = await http.get(url).timeout(const Duration(seconds: 15));
+          if (res.statusCode == 200) return jsonDecode(res.body) as Map<String, dynamic>;
+          if (res.statusCode == 429) {
+            final wait = attempt * 5;
+            debugPrint('Overpass 429 → ${wait}초 대기 (시도 $attempt/3)');
+            await Future.delayed(Duration(seconds: wait));
+          } else {
+            debugPrint('Overpass HTTP ${res.statusCode}');
+            break;
+          }
+        } catch (e) {
+          debugPrint('Overpass 오류: $e');
+          break;
         }
-      } catch (e) {
-        debugPrint('Overpass 네트워크 오류: $e');
       }
       return null;
     }

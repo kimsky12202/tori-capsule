@@ -39,56 +39,38 @@ class NightOverlayPainter extends CustomPainter {
 
   NightOverlayPainter({required this.holes, required this.circleRadius});
 
-  // 폴리곤을 중심에서 scale배 확장
-  List<Offset> _scalePolygon(List<Offset> pts, double scale) {
-    final cx = pts.map((p) => p.dx).reduce((a, b) => a + b) / pts.length;
-    final cy = pts.map((p) => p.dy).reduce((a, b) => a + b) / pts.length;
-    return pts.map((p) => Offset(
-      cx + (p.dx - cx) * scale,
-      cy + (p.dy - cy) * scale,
-    )).toList();
-  }
-
   @override
   void paint(Canvas canvas, Size size) {
+    final screenRect = Rect.fromLTWH(0, 0, size.width, size.height);
+
+    // 화면 경계로 clip → 꼭짓점이 화면 밖에 있어도 아티팩트 없음
+    canvas.save();
+    canvas.clipRect(screenRect);
+
+    // 구멍 Path 빌드
     final holesPath = Path();
     for (final hole in holes) {
-      // 폴리곤이 있을 때만 뚫음 (원형 fallback 없음)
       if (hole.polygon == null || hole.polygon!.length < 3) continue;
-      final expanded = _scalePolygon(hole.polygon!, 1.0);
       final poly = Path();
-      poly.moveTo(expanded.first.dx, expanded.first.dy);
-      for (final pt in expanded.skip(1)) {
+      poly.moveTo(hole.polygon!.first.dx, hole.polygon!.first.dy);
+      for (final pt in hole.polygon!.skip(1)) {
         poly.lineTo(pt.dx, pt.dy);
       }
       poly.close();
       holesPath.addPath(poly, Offset.zero);
     }
 
-    final screenRect = Rect.fromLTWH(0, 0, size.width, size.height);
+    // 전체 overlay - 구멍
     final overlay = Path()..addRect(screenRect);
-    // 폴리곤을 화면 영역으로 clip → 꼭짓점이 화면 밖으로 나갈 때 삼각형 아티팩트 방지
-    final clippedHoles = Path.combine(
-      PathOperation.intersect,
-      Path()..addRect(screenRect),
-      holesPath,
-    );
-    final result = Path.combine(PathOperation.difference, overlay, clippedHoles);
+    final result = Path.combine(PathOperation.difference, overlay, holesPath);
+    canvas.drawPath(result, Paint()..color = const Color(0xCC05101F));
 
-    canvas.drawPath(
-      result,
-      Paint()..color = const Color(0xCC05101F),
-    );
-
-    // 경계 글로우 (화면 안으로 clip)
-    canvas.save();
-    canvas.clipRect(screenRect);
+    // 경계 글로우
     for (final hole in holes) {
       if (hole.polygon == null || hole.polygon!.length < 3) continue;
-      final expanded = _scalePolygon(hole.polygon!, 1.0);
       final poly = Path();
-      poly.moveTo(expanded.first.dx, expanded.first.dy);
-      for (final pt in expanded.skip(1)) {
+      poly.moveTo(hole.polygon!.first.dx, hole.polygon!.first.dy);
+      for (final pt in hole.polygon!.skip(1)) {
         poly.lineTo(pt.dx, pt.dy);
       }
       poly.close();
@@ -96,11 +78,12 @@ class NightOverlayPainter extends CustomPainter {
         poly,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 18
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16)
-          ..color = const Color(0x5005101F),
+          ..strokeWidth = 20
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18)
+          ..color = const Color(0x4005101F),
       );
     }
+
     canvas.restore();
   }
 
