@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart' as img_picker;
 import 'package:exif/exif.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
+import 'package:permission_handler/permission_handler.dart';
 import 'dart:convert';
 import 'dart:async';
 import 'dart:ui' show ImageByteFormat, PictureRecorder;
@@ -488,6 +489,15 @@ class MapScreenState extends State<MapScreen>
 
   // ── 사진 추가 ─────────────────────────────────────────────
   Future<void> addPhotoPin() async {
+    // Android 10+: ACCESS_MEDIA_LOCATION 런타임 권한 없으면 GPS가 0,0,0으로 치환됨
+    if (!await Permission.accessMediaLocation.isGranted) {
+      await Permission.accessMediaLocation.request();
+    }
+    // Android 13+: READ_MEDIA_IMAGES 런타임 권한
+    if (!await Permission.photos.isGranted) {
+      await Permission.photos.request();
+    }
+
     final picked = await _picker.pickImage(
       source: img_picker.ImageSource.gallery,
       requestFullMetadata: true,
