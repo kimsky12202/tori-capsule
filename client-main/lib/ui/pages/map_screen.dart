@@ -194,7 +194,30 @@ class MapScreenState extends State<MapScreen>
     }
 
     try {
-      // 1단계: 반경 50m 내 개별 건물 (가장 정확한 범위)
+      // 1단계: is_in으로 관광지/공원/대학/단지 경계
+      final areaQ =
+          '[out:json];is_in($lat,$lng)->.a;('
+          'way["tourism"](pivot.a);'
+          'way["leisure"="park"](pivot.a);'
+          'way["leisure"="nature_reserve"](pivot.a);'
+          'way["historic"](pivot.a);'
+          'way["amenity"="university"](pivot.a);'
+          'way["landuse"="residential"](pivot.a);'
+          'way["landuse"="apartments"](pivot.a);'
+          'relation["tourism"](pivot.a);'
+          'relation["leisure"="park"](pivot.a);'
+          ');out geom;';
+      final areaBody = await overpassGet(areaQ);
+      if (areaBody != null) {
+        final polygon = _extractPolygon(areaBody);
+        if (polygon != null) {
+          _buildingPolygons[pin.id] = polygon;
+          debugPrint('✅ 지역 폴리곤: ${polygon.length}개 꼭짓점');
+          return;
+        }
+      }
+
+      // 2단계: 반경 50m 내 개별 건물 (fallback)
       final buildingQ =
           '[out:json];way["building"](around:50,$lat,$lng);out geom;';
       final buildingBody = await overpassGet(buildingQ);
@@ -203,36 +226,6 @@ class MapScreenState extends State<MapScreen>
         if (polygon != null) {
           _buildingPolygons[pin.id] = polygon;
           debugPrint('✅ 개별 건물: ${polygon.length}개 꼭짓점');
-          return;
-        }
-      }
-
-      // 2단계: 건물 없을 때만 is_in으로 공원/관광지/단지 (소규모 우선)
-      final areaQ =
-          '[out:json];is_in($lat,$lng)->.a;('
-          'way["leisure"="park"](pivot.a);'
-          'way["tourism"](pivot.a);'
-          'way["historic"](pivot.a);'
-          'way["landuse"="residential"](pivot.a);'
-          'way["landuse"="apartments"](pivot.a);'
-          ');out geom;';
-      final areaBody = await overpassGet(areaQ);
-      if (areaBody != null) {
-        final elements = areaBody['elements'] as List? ?? [];
-        // 꼭짓점이 가장 적은(작은) 폴리곤 우선 선택
-        List<List<double>>? best;
-        for (final el in elements) {
-          final geometry = (el as Map)['geometry'] as List?;
-          if (geometry == null || geometry.length < 3) continue;
-          final polygon = geometry.map((node) {
-            final n = node as Map;
-            return [(n['lon'] as num).toDouble(), (n['lat'] as num).toDouble()];
-          }).toList();
-          if (best == null || polygon.length < best.length) best = polygon;
-        }
-        if (best != null) {
-          _buildingPolygons[pin.id] = best;
-          debugPrint('✅ 지역 폴리곤: ${best.length}개 꼭짓점');
           return;
         }
       }
