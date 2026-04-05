@@ -180,65 +180,67 @@ class MapScreenState extends State<MapScreen>
     return null;
   }
 
-  /// OSM Overpass API로 아파트 단지 → 개별 건물 순으로 폴리곤 가져오기
+  /// OSM Overpass API로 폴리곤 가져오기 (통합 쿼리)
   Future<void> _queryBuildingForPin(CapsulePin pin) async {
-    Future<Map<String, dynamic>?> query(String q) async {
+    final lat = pin.lat, lng = pin.lng;
+
+    Future<Map<String, dynamic>?> overpassGet(String q) async {
       try {
         final url = Uri.parse(
           'https://overpass-api.de/api/interpreter?data=${Uri.encodeComponent(q)}',
         );
-        final res = await http.get(url).timeout(const Duration(seconds: 10));
+        final res = await http.get(url).timeout(const Duration(seconds: 15));
+        debugPrint('Overpass HTTP ${res.statusCode} (${res.body.length}bytes)');
         if (res.statusCode == 200) return jsonDecode(res.body) as Map<String, dynamic>;
-      } catch (_) {}
+        debugPrint('Overpass 오류: ${res.body.substring(0, res.body.length.clamp(0, 300))}');
+      } catch (e) {
+        debugPrint('Overpass 네트워크 오류: $e');
+      }
       return null;
     }
 
     try {
-      final lat = pin.lat, lng = pin.lng;
-
-      // 1단계: 관광지 / 공원 / 유적지 경계
-      final tourQ =
-          '[out:json];is_in($lat,$lng)->.a;'
-          '(way["tourism"](pivot.a);'
+      // 1단계: is_in으로 관광지/공원/단지 경계 (태그 우선순위 순)
+      final areaQ =
+          '[out:json];is_in($lat,$lng)->.a;('
+          'way["tourism"](pivot.a);'
           'way["leisure"="park"](pivot.a);'
           'way["leisure"="nature_reserve"](pivot.a);'
           'way["historic"](pivot.a);'
           'way["amenity"="university"](pivot.a);'
+          'way["landuse"="residential"](pivot.a);'
+          'way["landuse"="apartments"](pivot.a);'
           'relation["tourism"](pivot.a);'
           'relation["leisure"="park"](pivot.a);'
-          'relation["historic"](pivot.a););'
-          'out geom;';
-      final tourBody = await query(tourQ);
-      if (tourBody != null) {
-        final polygon = _extractPolygon(tourBody);
-        if (polygon != null) {
-          _buildingPolygons[pin.id] = polygon;
-          debugPrint('✅ 관광지/공원 폴리곤: ${polygon.length}개 꼭짓점');
-          return;
+          ');out geom;';
+      final areaBody = await overpassGet(areaQ);
+      if (areaBody != null) {
+        final elements = areaBody['elements'] as List? ?? [];
+        debugPrint('is_in 결과: ${elements.length}개');
+        for (final tag in ['tourism', 'leisure', 'historic', 'amenity', 'landuse']) {
+          for (final el in elements) {
+            final tags = (el as Map)['tags'] as Map?;
+            if (tags == null || !tags.containsKey(tag)) continue;
+            final geometry = el['geometry'] as List?;
+            if (geometry == null || geometry.length < 3) continue;
+            final polygon = geometry.map((node) {
+              final n = node as Map;
+              return [(n['lon'] as num).toDouble(), (n['lat'] as num).toDouble()];
+            }).toList();
+            _buildingPolygons[pin.id] = polygon;
+            debugPrint('✅ 폴리곤($tag=${tags[tag]}): ${polygon.length}개 꼭짓점');
+            return;
+          }
         }
       }
 
-      // 2단계: 아파트 단지(landuse=residential) 경계
-      final complexQ =
-          '[out:json];is_in($lat,$lng)->.a;'
-          '(way["landuse"="residential"](pivot.a);'
-          'way["landuse"="apartments"](pivot.a););'
-          'out geom;';
-      final complexBody = await query(complexQ);
-      if (complexBody != null) {
-        final polygon = _extractPolygon(complexBody);
-        if (polygon != null) {
-          _buildingPolygons[pin.id] = polygon;
-          debugPrint('✅ 아파트 단지 폴리곤: ${polygon.length}개 꼭짓점');
-          return;
-        }
-      }
-
-      // 3단계: 반경 30m 내 개별 건물
+      // 2단계: 반경 100m 내 개별 건물
       final buildingQ =
-          '[out:json];way["building"](around:30,$lat,$lng);out geom;';
-      final buildingBody = await query(buildingQ);
+          '[out:json];way["building"](around:100,$lat,$lng);out geom;';
+      final buildingBody = await overpassGet(buildingQ);
       if (buildingBody != null) {
+        final elems = buildingBody['elements'] as List? ?? [];
+        debugPrint('building 결과: ${elems.length}개');
         final polygon = _extractPolygon(buildingBody);
         if (polygon != null) {
           _buildingPolygons[pin.id] = polygon;
@@ -247,7 +249,7 @@ class MapScreenState extends State<MapScreen>
         }
       }
 
-      debugPrint('폴리곤 없음 → 오버레이 유지');
+      debugPrint('❌ 폴리곤 없음 (lat=$lat, lng=$lng)');
     } catch (e) {
       debugPrint('건물 쿼리 오류: $e');
     }
