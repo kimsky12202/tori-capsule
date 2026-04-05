@@ -68,6 +68,7 @@ class MapScreenState extends State<MapScreen>
     with AutomaticKeepAliveClientMixin {
   static const String _token = String.fromEnvironment('MAPBOX_ACCESS_TOKEN');
   static const String _prefsKey = 'capsule_pins';
+  static const String _polygonsKey = 'capsule_polygons';
 
   MapboxMap? _map;
   PointAnnotationManager? _pinManager;
@@ -184,9 +185,14 @@ class MapScreenState extends State<MapScreen>
           'https://overpass-api.de/api/interpreter?data=${Uri.encodeComponent(q)}',
         );
         final res = await http.get(url).timeout(const Duration(seconds: 15));
-        debugPrint('Overpass HTTP ${res.statusCode} (${res.body.length}bytes)');
         if (res.statusCode == 200) return jsonDecode(res.body) as Map<String, dynamic>;
-        debugPrint('Overpass 오류: ${res.body.substring(0, res.body.length.clamp(0, 300))}');
+        if (res.statusCode == 429) {
+          debugPrint('Overpass 429 rate limit → 5초 후 재시도');
+          await Future.delayed(const Duration(seconds: 5));
+          final retry = await http.get(url).timeout(const Duration(seconds: 15));
+          if (retry.statusCode == 200) return jsonDecode(retry.body) as Map<String, dynamic>;
+          debugPrint('Overpass 재시도도 실패: ${retry.statusCode}');
+        }
       } catch (e) {
         debugPrint('Overpass 네트워크 오류: $e');
       }
@@ -243,17 +249,45 @@ class MapScreenState extends State<MapScreen>
     await prefs.setStringList(_prefsKey, list);
   }
 
+  /// 폴리곤 캐시 저장 (재시작 시 Overpass 재쿼리 방지)
+  Future<void> _savePolygons() async {
+    final prefs = await SharedPreferences.getInstance();
+    final map = _buildingPolygons.map((id, coords) =>
+        MapEntry(id, jsonEncode(coords)));
+    await prefs.setString(_polygonsKey, jsonEncode(map));
+  }
+
+  Future<void> _loadPolygons() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_polygonsKey);
+      if (raw == null) return;
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      for (final entry in map.entries) {
+        final coords = (jsonDecode(entry.value as String) as List)
+            .map((c) => (c as List).map((v) => (v as num).toDouble()).toList())
+            .toList();
+        _buildingPolygons[entry.key] = coords;
+      }
+    } catch (_) {}
+  }
+
   Future<void> _loadPins() async {
     final prefs = await SharedPreferences.getInstance();
+    await _loadPolygons(); // 캐시된 폴리곤 먼저 로드
     final list = prefs.getStringList(_prefsKey) ?? [];
     for (final raw in list) {
       try {
         final pin = CapsulePin.fromJson(jsonDecode(raw) as Map<String, dynamic>);
-        // 파일이 아직 존재하는 것만 복원
         if (pin.photoPath == null || File(pin.photoPath!).existsSync()) {
           _pins.add(pin);
           await _addMarkerToMap(pin);
-          await _queryBuildingForPin(pin);
+          // 캐시에 없는 핀만 Overpass 쿼리 (핀 간 2초 간격으로 rate limit 방지)
+          if (!_buildingPolygons.containsKey(pin.id)) {
+            await Future.delayed(const Duration(seconds: 2));
+            await _queryBuildingForPin(pin);
+            await _savePolygons();
+          }
         }
       } catch (_) {}
     }
@@ -541,6 +575,7 @@ class MapScreenState extends State<MapScreen>
       // 이동 완료 + 건물 타일 로드 대기 후 건물 쿼리
       await Future.delayed(const Duration(milliseconds: 800));
       await _queryBuildingForPin(pin);
+      await _savePolygons(); // 폴리곤 캐시 저장
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('오류: $e')));
