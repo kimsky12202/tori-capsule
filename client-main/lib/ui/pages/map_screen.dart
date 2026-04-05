@@ -150,18 +150,12 @@ class MapScreenState extends State<MapScreen>
               debugPrint('꼭짓점 변환 실패: $e');
             }
           }
-          debugPrint('📐 ${pin.id} 폴리곤 변환: ${geoPolygon.length}개 → ${pts.length}개 성공 (zoom=$zoom)');
-          if (pts.length >= 3) screenPolygon = pts;
-        } else {
-          debugPrint('📐 ${pin.id} 폴리곤 없음 (buildingPolygons keys: ${_buildingPolygons.keys.toList()})');
+            if (pts.length >= 3) screenPolygon = pts;
         }
 
         shapes.add(HoleShape(center: center, polygon: screenPolygon));
-      } catch (e) {
-        debugPrint('핀 변환 실패 ${pin.id}: $e');
-      }
+      } catch (_) {}
     }
-    debugPrint('🎨 holeShapes 업데이트: ${shapes.length}개 (polygon 있는것: ${shapes.where((s) => s.polygon != null).length}개)');
     if (mounted) setState(() => _holeShapes = shapes);
   }
 
@@ -200,51 +194,45 @@ class MapScreenState extends State<MapScreen>
     }
 
     try {
-      // 1단계: is_in으로 관광지/공원/단지 경계 (태그 우선순위 순)
+      // 1단계: 반경 50m 내 개별 건물 (가장 정확한 범위)
+      final buildingQ =
+          '[out:json];way["building"](around:50,$lat,$lng);out geom;';
+      final buildingBody = await overpassGet(buildingQ);
+      if (buildingBody != null) {
+        final polygon = _extractPolygon(buildingBody);
+        if (polygon != null) {
+          _buildingPolygons[pin.id] = polygon;
+          debugPrint('✅ 개별 건물: ${polygon.length}개 꼭짓점');
+          return;
+        }
+      }
+
+      // 2단계: 건물 없을 때만 is_in으로 공원/관광지/단지 (소규모 우선)
       final areaQ =
           '[out:json];is_in($lat,$lng)->.a;('
-          'way["tourism"](pivot.a);'
           'way["leisure"="park"](pivot.a);'
-          'way["leisure"="nature_reserve"](pivot.a);'
+          'way["tourism"](pivot.a);'
           'way["historic"](pivot.a);'
-          'way["amenity"="university"](pivot.a);'
           'way["landuse"="residential"](pivot.a);'
           'way["landuse"="apartments"](pivot.a);'
-          'relation["tourism"](pivot.a);'
-          'relation["leisure"="park"](pivot.a);'
           ');out geom;';
       final areaBody = await overpassGet(areaQ);
       if (areaBody != null) {
         final elements = areaBody['elements'] as List? ?? [];
-        debugPrint('is_in 결과: ${elements.length}개');
-        for (final tag in ['tourism', 'leisure', 'historic', 'amenity', 'landuse']) {
-          for (final el in elements) {
-            final tags = (el as Map)['tags'] as Map?;
-            if (tags == null || !tags.containsKey(tag)) continue;
-            final geometry = el['geometry'] as List?;
-            if (geometry == null || geometry.length < 3) continue;
-            final polygon = geometry.map((node) {
-              final n = node as Map;
-              return [(n['lon'] as num).toDouble(), (n['lat'] as num).toDouble()];
-            }).toList();
-            _buildingPolygons[pin.id] = polygon;
-            debugPrint('✅ 폴리곤($tag=${tags[tag]}): ${polygon.length}개 꼭짓점');
-            return;
-          }
+        // 꼭짓점이 가장 적은(작은) 폴리곤 우선 선택
+        List<List<double>>? best;
+        for (final el in elements) {
+          final geometry = (el as Map)['geometry'] as List?;
+          if (geometry == null || geometry.length < 3) continue;
+          final polygon = geometry.map((node) {
+            final n = node as Map;
+            return [(n['lon'] as num).toDouble(), (n['lat'] as num).toDouble()];
+          }).toList();
+          if (best == null || polygon.length < best.length) best = polygon;
         }
-      }
-
-      // 2단계: 반경 100m 내 개별 건물
-      final buildingQ =
-          '[out:json];way["building"](around:100,$lat,$lng);out geom;';
-      final buildingBody = await overpassGet(buildingQ);
-      if (buildingBody != null) {
-        final elems = buildingBody['elements'] as List? ?? [];
-        debugPrint('building 결과: ${elems.length}개');
-        final polygon = _extractPolygon(buildingBody);
-        if (polygon != null) {
-          _buildingPolygons[pin.id] = polygon;
-          debugPrint('✅ 개별 건물 폴리곤: ${polygon.length}개 꼭짓점');
+        if (best != null) {
+          _buildingPolygons[pin.id] = best;
+          debugPrint('✅ 지역 폴리곤: ${best.length}개 꼭짓점');
           return;
         }
       }

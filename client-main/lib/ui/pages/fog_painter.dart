@@ -55,7 +55,7 @@ class NightOverlayPainter extends CustomPainter {
     for (final hole in holes) {
       // 폴리곤이 있을 때만 뚫음 (원형 fallback 없음)
       if (hole.polygon == null || hole.polygon!.length < 3) continue;
-      final expanded = _scalePolygon(hole.polygon!, 1.2);
+      final expanded = _scalePolygon(hole.polygon!, 1.0);
       final poly = Path();
       poly.moveTo(expanded.first.dx, expanded.first.dy);
       for (final pt in expanded.skip(1)) {
@@ -77,7 +77,7 @@ class NightOverlayPainter extends CustomPainter {
     // 경계 글로우 (폴리곤 있는 것만)
     for (final hole in holes) {
       if (hole.polygon == null || hole.polygon!.length < 3) continue;
-      final expanded = _scalePolygon(hole.polygon!, 1.2);
+      final expanded = _scalePolygon(hole.polygon!, 1.0);
       final poly = Path();
       poly.moveTo(expanded.first.dx, expanded.first.dy);
       for (final pt in expanded.skip(1)) {
