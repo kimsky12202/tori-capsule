@@ -367,9 +367,9 @@ class MapScreenState extends State<MapScreen>
   }
 
   // ── GPS EXIF 추출 ─────────────────────────────────────────
-  Future<(geo.Position?, String)> _extractGpsFromPhoto(File photo) async {
+  // bytes를 직접 받아서 처리 (XFile.readAsBytes()로 content URI 원본 읽기)
+  Future<(geo.Position?, String)> _extractGpsFromBytes(Uint8List bytes) async {
     try {
-      final bytes = await photo.readAsBytes();
       final data = await readExifFromBytes(bytes);
 
       if (data.isEmpty) {
@@ -378,13 +378,6 @@ class MapScreenState extends State<MapScreen>
       if (!data.containsKey('GPS GPSLatitude') || !data.containsKey('GPS GPSLongitude')) {
         return (null, 'GPS 정보가 없어요. 카메라 설정에서 "위치 태그"를 켜고 직접 찍은 사진을 써보세요.');
       }
-
-      final latRaw = data['GPS GPSLatitude']!.values.toList();
-      final lngRaw = data['GPS GPSLongitude']!.values.toList();
-      debugPrint('GPS lat raw: $latRaw (types: ${latRaw.map((e) => e.runtimeType).toList()})');
-      debugPrint('GPS lng raw: $lngRaw (types: ${lngRaw.map((e) => e.runtimeType).toList()})');
-      debugPrint('GPS lat ref: ${data['GPS GPSLatitudeRef']?.printable}');
-      debugPrint('GPS lng ref: ${data['GPS GPSLongitudeRef']?.printable}');
 
       double? parseDMS(IfdTag tag) {
         final vals = tag.values.toList();
@@ -399,11 +392,10 @@ class MapScreenState extends State<MapScreen>
 
       double? lat = parseDMS(data['GPS GPSLatitude']!);
       double? lng = parseDMS(data['GPS GPSLongitude']!);
-
       debugPrint('GPS 파싱 결과: lat=$lat, lng=$lng');
 
-      if (lat == null || lng == null) {
-        return (null, 'GPS 값을 읽을 수 없어요.');
+      if (lat == null || lng == null || (lat == 0.0 && lng == 0.0)) {
+        return (null, 'GPS 값을 읽을 수 없어요. (lat=$lat, lng=$lng)');
       }
       if (data['GPS GPSLatitudeRef']?.printable == 'S') lat = -lat;
       if (data['GPS GPSLongitudeRef']?.printable == 'W') lng = -lng;
@@ -504,7 +496,10 @@ class MapScreenState extends State<MapScreen>
     final file = File(picked.path);
     setState(() => _isLoading = true);
     try {
-      final (gpsResult, gpsMessage) = await _extractGpsFromPhoto(file);
+      // XFile.readAsBytes()로 content URI 원본에서 직접 읽어야 GPS EXIF 보존됨
+      // File(picked.path).readAsBytes()는 캐시 복사본이라 GPS가 스트립될 수 있음
+      final rawBytes = await picked.readAsBytes();
+      final (gpsResult, gpsMessage) = await _extractGpsFromBytes(rawBytes);
       geo.Position? gpsPos = gpsResult;
 
       if (gpsPos == null) {
