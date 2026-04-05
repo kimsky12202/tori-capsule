@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:convert';
+import 'dart:async';
 import 'dart:ui' show ImageByteFormat, PictureRecorder;
 import 'dart:typed_data';
 import 'dart:io';
@@ -175,7 +176,7 @@ class MapScreenState extends State<MapScreen>
           if (res.statusCode == 200) return jsonDecode(res.body) as Map<String, dynamic>;
           if (res.statusCode == 429) {
             final wait = attempt * 5;
-            debugPrint('Overpass 429 → ${wait}초 대기 (시도 $attempt/3)');
+            debugPrint('Overpass 429 → $wait초 대기 (시도 $attempt/3)');
             await Future.delayed(Duration(seconds: wait));
           } else {
             debugPrint('Overpass HTTP ${res.statusCode}');
