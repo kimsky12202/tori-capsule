@@ -553,6 +553,38 @@ class MapScreenState extends State<MapScreen>
     }
   }
 
+  // ── 광화문 테스트 핀 ──────────────────────────────────────
+  Future<void> _addGwanghwamunTestPin() async {
+    setState(() => _isLoading = true);
+    try {
+      // 기존 광화문 테스트 핀이 있으면 제거
+      _pins.removeWhere((p) => p.id == 'test_gwanghwamun');
+      _buildingPolygons.remove('test_gwanghwamun');
+
+      const double lat = 37.5759, lng = 126.9769; // 광화문광장
+      final pin = CapsulePin(
+        id: 'test_gwanghwamun',
+        lat: lat,
+        lng: lng,
+        title: '광화문 테스트',
+      );
+      _pins.add(pin);
+      await _addMarkerToMap(pin);
+
+      await _map?.flyTo(
+        CameraOptions(
+          center: Point(coordinates: Position(lng, lat)),
+          zoom: 16.0,
+        ),
+        MapAnimationOptions(duration: 1200),
+      );
+      await Future.delayed(const Duration(milliseconds: 800));
+      await _queryBuildingForPin(pin);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   void _showPinSheet(CapsulePin pin) {
     showModalBottomSheet(
       context: context,
@@ -622,6 +654,16 @@ class MapScreenState extends State<MapScreen>
               color: Colors.black26,
               child: const Center(child: CircularProgressIndicator(color: Color(0xFF7B5EA7))),
             ),
+          // 광화문 테스트 버튼 (임시)
+          Positioned(
+            bottom: 170, right: 16,
+            child: FloatingActionButton(
+              heroTag: 'test',
+              backgroundColor: const Color(0xFFE8A838),
+              onPressed: _addGwanghwamunTestPin,
+              child: const Icon(Icons.flag, color: Colors.white),
+            ),
+          ),
           Positioned(
             bottom: 100, right: 16,
             child: FloatingActionButton(
