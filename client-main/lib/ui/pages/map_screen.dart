@@ -7,12 +7,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:convert';
-import 'dart:async';
 import 'dart:ui' show ImageByteFormat, PictureRecorder;
 import 'dart:typed_data';
 import 'dart:io';
 import 'dart:math' as math;
-import 'fog_painter.dart';
 
 class CapsulePin {
   final String id;
@@ -77,17 +75,15 @@ class MapScreenState extends State<MapScreen>
 
   final List<CapsulePin> _pins = [];
   final Map<String, String> _markerMap = {};
-  // 핀ID → 건물 GeoJSON 좌표 [[lng,lat], ...]
   final Map<String, List<List<double>>> _buildingPolygons = {};
   final img_picker.ImagePicker _picker = img_picker.ImagePicker();
   StreamSubscription<geo.Position>? _posSub;
-  Timer? _overlayTimer;
 
   bool _isLoading = false;
   bool _tapListenerRegistered = false;
-  List<HoleShape> _holeShapes = [];
-  static const double _holeRadius = 300.0;
-  static const double _minZoomToShow = 11.0;
+
+  static const _overlaySourceId = 'night-overlay-source';
+  static const _overlayLayerId  = 'night-overlay-layer';
 
   @override
   bool get wantKeepAlive => true;
@@ -101,63 +97,53 @@ class MapScreenState extends State<MapScreen>
   @override
   void dispose() {
     _posSub?.cancel();
-    _overlayTimer?.cancel();
     super.dispose();
   }
 
-  // ── 핀 위치 → 화면 좌표 변환 (오버레이 구멍) ────────────────
-  void _startOverlayTimer() {
-    _overlayTimer?.cancel();
-    _overlayTimer = Timer.periodic(
-      const Duration(milliseconds: 100),
-      (_) => _updateHoleOffsets(),
-    );
+  // ── Mapbox 네이티브 오버레이 (지리좌표 → 화면좌표 변환 불필요) ──
+  /// 전 세계를 덮는 어두운 FillLayer + 핀 폴리곤을 구멍으로 뚫음
+  Future<void> _initOverlayLayer() async {
+    if (_map == null) return;
+    try {
+      await _map!.style.addSource(GeoJsonSource(
+        id: _overlaySourceId,
+        data: jsonEncode(_buildOverlayGeoJson()),
+      ));
+      await _map!.style.addLayer(FillLayer(
+        id: _overlayLayerId,
+        sourceId: _overlaySourceId,
+      ));
+      await _map!.style.setStyleLayerProperty(_overlayLayerId, 'fill-color', '#05101F');
+      await _map!.style.setStyleLayerProperty(_overlayLayerId, 'fill-opacity', 0.8);
+    } catch (e) {
+      debugPrint('오버레이 레이어 초기화 오류: $e');
+    }
   }
 
-  Future<void> _updateHoleOffsets() async {
-    if (_map == null || _pins.isEmpty) {
-      if (_holeShapes.isNotEmpty && mounted) setState(() => _holeShapes = []);
-      return;
+  Future<void> _updateOverlay() async {
+    if (_map == null) return;
+    try {
+      await _map!.style.setStyleSourceProperty(
+        _overlaySourceId, 'data', jsonEncode(_buildOverlayGeoJson()),
+      );
+    } catch (e) {
+      debugPrint('오버레이 업데이트 오류: $e');
     }
-    double zoom = 0;
-    try { zoom = (await _map!.getCameraState()).zoom; } catch (e) {
-      debugPrint('zoom 조회 실패: $e');
+  }
+
+  /// 전 세계 외부링 + 각 핀 폴리곤을 구멍으로 하는 GeoJSON 생성
+  Map<String, dynamic> _buildOverlayGeoJson() {
+    final rings = <List<List<double>>>[
+      // 외부 링: 전 세계를 반시계방향으로 덮음
+      [[-180.0,-85.0],[180.0,-85.0],[180.0,85.0],[-180.0,85.0],[-180.0,-85.0]],
+    ];
+    for (final polygon in _buildingPolygons.values) {
+      if (polygon.length >= 3) rings.add(polygon);
     }
-
-    if (zoom < _minZoomToShow) {
-      if (mounted) setState(() => _holeShapes = []);
-      return;
-    }
-
-    final shapes = <HoleShape>[];
-    for (final pin in _pins) {
-      try {
-        final sc = await _map!.pixelForCoordinate(
-          Point(coordinates: Position(pin.lng, pin.lat)),
-        );
-        final center = Offset(sc.x, sc.y);
-
-        final geoPolygon = _buildingPolygons[pin.id];
-        List<Offset>? screenPolygon;
-        if (geoPolygon != null) {
-          final pts = <Offset>[];
-          for (final coord in geoPolygon) {
-            try {
-              final pt = await _map!.pixelForCoordinate(
-                Point(coordinates: Position(coord[0], coord[1])),
-              );
-              pts.add(Offset(pt.x, pt.y));
-            } catch (e) {
-              debugPrint('꼭짓점 변환 실패: $e');
-            }
-          }
-            if (pts.length >= 3) screenPolygon = pts;
-        }
-
-        shapes.add(HoleShape(center: center, polygon: screenPolygon));
-      } catch (_) {}
-    }
-    if (mounted) setState(() => _holeShapes = shapes);
+    return {
+      'type': 'Feature',
+      'geometry': {'type': 'Polygon', 'coordinates': rings},
+    };
   }
 
   /// 좌표를 포함하는 OSM 폴리곤 geometry 추출 헬퍼
@@ -292,6 +278,7 @@ class MapScreenState extends State<MapScreen>
             await _queryBuildingForPin(pin);
             await _savePolygons();
           }
+          await _updateOverlay();
         }
       } catch (_) {}
     }
@@ -331,9 +318,8 @@ class MapScreenState extends State<MapScreen>
     );
     await _moveToMyLocation();
     _startTracking();
+    await _initOverlayLayer();
     await _loadPins();
-    _startOverlayTimer();
-    // 아침 모드 (오버레이로 핀 없는 곳을 어둡게)
     try {
       await map.style.setStyleImportConfigProperty('basemap', 'lightPreset', 'dawn');
     } catch (_) {}
@@ -579,7 +565,8 @@ class MapScreenState extends State<MapScreen>
       // 이동 완료 + 건물 타일 로드 대기 후 건물 쿼리
       await Future.delayed(const Duration(milliseconds: 800));
       await _queryBuildingForPin(pin);
-      await _savePolygons(); // 폴리곤 캐시 저장
+      await _savePolygons();
+      await _updateOverlay(); // Mapbox 레이어 업데이트
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('오류: $e')));
@@ -674,17 +661,7 @@ class MapScreenState extends State<MapScreen>
             ),
             onMapCreated: _onMapCreated,
           ),
-          // 핀 근처만 아침처럼, 나머지는 야간처럼 보이는 오버레이
-          Positioned.fill(
-            child: IgnorePointer(
-              child: CustomPaint(
-                painter: NightOverlayPainter(
-                  holes: _holeShapes,
-                  circleRadius: _holeRadius,
-                ),
-              ),
-            ),
-          ),
+          // 오버레이는 Mapbox FillLayer로 처리 (줌/패닝에 완전히 안정적)
           if (_isLoading)
             Container(
               color: Colors.black26,
