@@ -119,7 +119,9 @@ class MapScreenState extends State<MapScreen>
       return;
     }
     double zoom = 0;
-    try { zoom = (await _map!.getCameraState()).zoom; } catch (_) {}
+    try { zoom = (await _map!.getCameraState()).zoom; } catch (e) {
+      debugPrint('zoom 조회 실패: $e');
+    }
 
     if (zoom < _minZoomToShow) {
       if (mounted) setState(() => _holeShapes = []);
@@ -134,7 +136,6 @@ class MapScreenState extends State<MapScreen>
         );
         final center = Offset(sc.x, sc.y);
 
-        // 건물 폴리곤이 있으면 화면 좌표로 변환
         final geoPolygon = _buildingPolygons[pin.id];
         List<Offset>? screenPolygon;
         if (geoPolygon != null) {
@@ -145,14 +146,22 @@ class MapScreenState extends State<MapScreen>
                 Point(coordinates: Position(coord[0], coord[1])),
               );
               pts.add(Offset(pt.x, pt.y));
-            } catch (_) {}
+            } catch (e) {
+              debugPrint('꼭짓점 변환 실패: $e');
+            }
           }
+          debugPrint('📐 ${pin.id} 폴리곤 변환: ${geoPolygon.length}개 → ${pts.length}개 성공 (zoom=$zoom)');
           if (pts.length >= 3) screenPolygon = pts;
+        } else {
+          debugPrint('📐 ${pin.id} 폴리곤 없음 (buildingPolygons keys: ${_buildingPolygons.keys.toList()})');
         }
 
         shapes.add(HoleShape(center: center, polygon: screenPolygon));
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('핀 변환 실패 ${pin.id}: $e');
+      }
     }
+    debugPrint('🎨 holeShapes 업데이트: ${shapes.length}개 (polygon 있는것: ${shapes.where((s) => s.polygon != null).length}개)');
     if (mounted) setState(() => _holeShapes = shapes);
   }
 
