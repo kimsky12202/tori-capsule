@@ -121,7 +121,7 @@ class MapScreenState extends State<MapScreen>
         sourceId: _overlaySourceId,
       ));
       await _map!.style.setStyleLayerProperty(_overlayLayerId, 'fill-color', '#05101F');
-      await _map!.style.setStyleLayerProperty(_overlayLayerId, 'fill-opacity', 0.8);
+      await _map!.style.setStyleLayerProperty(_overlayLayerId, 'fill-opacity', 0.85);
     } catch (e) {
       debugPrint('오버레이 레이어 초기화 오류: $e');
     }
@@ -336,10 +336,6 @@ class MapScreenState extends State<MapScreen>
         quickZoomEnabled: true,
       ),
     );
-    // lightPreset을 먼저 설정 (이후 스타일 변경이 커스텀 레이어를 지우지 않도록)
-    try {
-      await map.style.setStyleImportConfigProperty('basemap', 'lightPreset', 'dawn');
-    } catch (_) {}
     await _initOverlayLayer();
     await _moveToMyLocation();
     _startTracking();
@@ -348,9 +344,6 @@ class MapScreenState extends State<MapScreen>
 
   /// 스타일이 재로드될 때마다 오버레이 레이어 복구
   Future<void> _onStyleLoaded(StyleLoadedEventData _) async {
-    try {
-      await _map?.style.setStyleImportConfigProperty('basemap', 'lightPreset', 'dawn');
-    } catch (_) {}
     await _initOverlayLayer();
     await _updateOverlay();
   }
