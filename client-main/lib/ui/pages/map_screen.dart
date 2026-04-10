@@ -577,16 +577,19 @@ class MapScreenState extends State<MapScreen>
       await _savePins();
 
       // 핀 위치로 카메라 이동 (zoom 16 = 건물 명확히 보임)
+      // 3D 건물이 보이는 입체 뷰로 이동
       await _map?.flyTo(
         CameraOptions(
           center: Point(coordinates: Position(gpsPos.longitude, gpsPos.latitude)),
-          zoom: 16.0,
+          zoom: 17.5,
+          pitch: 55.0,   // 기울기: 위에서 내려다보는 각도 (0=수직, 60=입체)
+          bearing: 0.0,  // 방위각: 0=북쪽 기준
         ),
-        MapAnimationOptions(duration: 1000),
+        MapAnimationOptions(duration: 1800),
       );
 
       // 이동 완료 + 건물 타일 로드 대기 후 건물 쿼리
-      await Future.delayed(const Duration(milliseconds: 800));
+      await Future.delayed(const Duration(milliseconds: 1000));
       await _queryBuildingForPin(pin);
       await _savePolygons();
       await _updateOverlay(); // Mapbox 레이어 업데이트
@@ -617,14 +620,17 @@ class MapScreenState extends State<MapScreen>
       _pins.add(pin);
       await _addMarkerToMap(pin);
 
+      // 3D 건물이 보이는 입체 뷰로 이동
       await _map?.flyTo(
         CameraOptions(
           center: Point(coordinates: Position(lng, lat)),
-          zoom: 16.0,
+          zoom: 17.5,
+          pitch: 55.0,
+          bearing: 0.0,
         ),
-        MapAnimationOptions(duration: 1200),
+        MapAnimationOptions(duration: 1800),
       );
-      await Future.delayed(const Duration(milliseconds: 800));
+      await Future.delayed(const Duration(milliseconds: 1000));
       await _queryBuildingForPin(pin);
     } finally {
       if (mounted) setState(() => _isLoading = false);
