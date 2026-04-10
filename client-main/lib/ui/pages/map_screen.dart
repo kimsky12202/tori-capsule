@@ -141,8 +141,9 @@ class MapScreenState extends State<MapScreen>
   /// 전 세계 외부링(CCW) + 핀 폴리곤을 구멍(CW)으로 하는 GeoJSON 생성
   Map<String, dynamic> _buildOverlayGeoJson() {
     final rings = <List<List<double>>>[
-      // 외부 링: CCW (반시계방향) → Mapbox right-hand rule 준수
-      [[-180.0,-85.0],[-180.0,85.0],[180.0,85.0],[180.0,-85.0],[-180.0,-85.0]],
+      // 외부 링: CCW (반시계방향) → SW→SE→NE→NW→SW 순서
+      // Shoelace 검증: area > 0 → 반시계방향 ✓
+      [[-180.0,-85.0],[180.0,-85.0],[180.0,85.0],[-180.0,85.0],[-180.0,-85.0]],
     ];
     for (final polygon in _buildingPolygons.values) {
       if (polygon.length >= 3) {
