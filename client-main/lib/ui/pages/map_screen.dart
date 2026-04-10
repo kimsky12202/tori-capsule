@@ -581,8 +581,8 @@ class MapScreenState extends State<MapScreen>
       await _map?.flyTo(
         CameraOptions(
           center: Point(coordinates: Position(gpsPos.longitude, gpsPos.latitude)),
-          zoom: 17.5,
-          pitch: 55.0,   // 기울기: 위에서 내려다보는 각도 (0=수직, 60=입체)
+          zoom: 18.5,
+          pitch: 65.0,   // 기울기: 위에서 내려다보는 각도 (0=수직, 60=입체)
           bearing: 0.0,  // 방위각: 0=북쪽 기준
         ),
         MapAnimationOptions(duration: 1800),
@@ -624,8 +624,8 @@ class MapScreenState extends State<MapScreen>
       await _map?.flyTo(
         CameraOptions(
           center: Point(coordinates: Position(lng, lat)),
-          zoom: 17.5,
-          pitch: 55.0,
+          zoom: 18.5,
+          pitch: 65.0,
           bearing: 0.0,
         ),
         MapAnimationOptions(duration: 1800),
