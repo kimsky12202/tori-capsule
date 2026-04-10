@@ -246,10 +246,28 @@ class MapScreenState extends State<MapScreen>
         }
       }
 
-      debugPrint('❌ 폴리곤 없음 (lat=$lat, lng=$lng)');
+      // 3단계: 길바닥 / 야외 등 OSM 폴리곤이 없는 경우 → 반경 80m 원형 폴리곤 생성
+      _buildingPolygons[pin.id] = _makeCirclePolygon(lat, lng, 80);
+      debugPrint('⭕ 원형 fallback 폴리곤 생성 (반경 80m)');
     } catch (e) {
       debugPrint('건물 쿼리 오류: $e');
+      // 오류 시에도 원형 fallback 적용
+      _buildingPolygons[pin.id] = _makeCirclePolygon(lat, lng, 80);
     }
+  }
+
+  /// 위경도 기준 원형 GeoJSON 링 생성 (반경 미터)
+  List<List<double>> _makeCirclePolygon(double lat, double lng, double radiusMeters, {int points = 36}) {
+    const mPerDegLat = 111320.0;
+    final mPerDegLng = 111320.0 * math.cos(lat * math.pi / 180);
+    final ring = <List<double>>[];
+    for (int i = 0; i <= points; i++) {
+      final angle = 2 * math.pi * i / points;
+      final dlat = (radiusMeters * math.sin(angle)) / mPerDegLat;
+      final dlng = (radiusMeters * math.cos(angle)) / mPerDegLng;
+      ring.add([lng + dlng, lat + dlat]);
+    }
+    return ring;
   }
 
   // ── 저장/불러오기 ─────────────────────────────────────────
