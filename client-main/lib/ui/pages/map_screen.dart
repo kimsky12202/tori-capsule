@@ -167,16 +167,43 @@ class MapScreenState extends State<MapScreen>
   }
 
   /// 좌표를 포함하는 OSM 폴리곤 geometry 추출 헬퍼
+  /// way → geometry 직접 파싱 / relation → outer member way geometry 파싱
   List<List<double>>? _extractPolygon(Map<String, dynamic> body) {
     final elements = body['elements'] as List?;
     if (elements == null || elements.isEmpty) return null;
-    for (final el in elements) {
-      final geometry = (el as Map)['geometry'] as List?;
-      if (geometry == null || geometry.length < 3) continue;
-      return geometry.map((node) {
+
+    List<List<double>>? parseGeom(List geom) {
+      if (geom.length < 3) return null;
+      return geom.map((node) {
         final n = node as Map;
         return [(n['lon'] as num).toDouble(), (n['lat'] as num).toDouble()];
       }).toList();
+    }
+
+    for (final el in elements) {
+      final map = el as Map;
+
+      // Way: 직접 geometry 필드
+      final geom = map['geometry'] as List?;
+      if (geom != null) {
+        final poly = parseGeom(geom);
+        if (poly != null) return poly;
+      }
+
+      // Relation: members 안의 outer role way geometry
+      final members = map['members'] as List?;
+      if (members != null) {
+        for (final member in members) {
+          final m = member as Map;
+          if (m['role'] == 'outer') {
+            final mGeom = m['geometry'] as List?;
+            if (mGeom != null) {
+              final poly = parseGeom(mGeom);
+              if (poly != null) return poly;
+            }
+          }
+        }
+      }
     }
     return null;
   }
@@ -210,6 +237,8 @@ class MapScreenState extends State<MapScreen>
     }
 
     try {
+      bool overpassResponded = false;
+
       // 1단계: is_in으로 관광지/공원/대학/단지 경계
       final areaQ =
           '[out:json];is_in($lat,$lng)->.a;('
@@ -225,6 +254,7 @@ class MapScreenState extends State<MapScreen>
           ');out geom;';
       final areaBody = await overpassGet(areaQ);
       if (areaBody != null) {
+        overpassResponded = true;
         final polygon = _extractPolygon(areaBody);
         if (polygon != null) {
           _buildingPolygons[pin.id] = polygon;
@@ -233,11 +263,12 @@ class MapScreenState extends State<MapScreen>
         }
       }
 
-      // 2단계: 반경 50m 내 개별 건물 (fallback)
+      // 2단계: 반경 50m 내 개별 건물
       final buildingQ =
           '[out:json];way["building"](around:50,$lat,$lng);out geom;';
       final buildingBody = await overpassGet(buildingQ);
       if (buildingBody != null) {
+        overpassResponded = true;
         final polygon = _extractPolygon(buildingBody);
         if (polygon != null) {
           _buildingPolygons[pin.id] = polygon;
@@ -246,13 +277,16 @@ class MapScreenState extends State<MapScreen>
         }
       }
 
-      // 3단계: 길바닥 / 야외 등 OSM 폴리곤이 없는 경우 → 반경 80m 원형 폴리곤 생성
-      _buildingPolygons[pin.id] = _makeCirclePolygon(lat, lng, 80);
-      debugPrint('⭕ 원형 fallback 폴리곤 생성 (반경 80m)');
+      // 3단계: Overpass가 정상 응답했지만 폴리곤이 없는 경우 (길바닥·야외) → 원형 fallback
+      if (overpassResponded) {
+        _buildingPolygons[pin.id] = _makeCirclePolygon(lat, lng, 80);
+        debugPrint('⭕ 원형 fallback (Overpass 응답 but 폴리곤 없음, 반경 80m)');
+      } else {
+        // Overpass 자체 실패(429·네트워크) → 원 없이 스킵, 다음 앱 실행 시 재시도
+        debugPrint('⚠️ Overpass 실패 → 폴리곤 없이 스킵 (다음 실행 시 재시도)');
+      }
     } catch (e) {
       debugPrint('건물 쿼리 오류: $e');
-      // 오류 시에도 원형 fallback 적용
-      _buildingPolygons[pin.id] = _makeCirclePolygon(lat, lng, 80);
     }
   }
 
