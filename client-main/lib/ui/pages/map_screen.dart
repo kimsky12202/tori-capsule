@@ -237,8 +237,6 @@ class MapScreenState extends State<MapScreen>
     }
 
     try {
-      bool overpassResponded = false;
-
       // 1단계: is_in으로 관광지/공원/대학/단지 경계
       final areaQ =
           '[out:json];is_in($lat,$lng)->.a;('
@@ -254,7 +252,6 @@ class MapScreenState extends State<MapScreen>
           ');out geom;';
       final areaBody = await overpassGet(areaQ);
       if (areaBody != null) {
-        overpassResponded = true;
         final polygon = _extractPolygon(areaBody);
         if (polygon != null) {
           _buildingPolygons[pin.id] = polygon;
@@ -268,7 +265,6 @@ class MapScreenState extends State<MapScreen>
           '[out:json];way["building"](around:50,$lat,$lng);out geom;';
       final buildingBody = await overpassGet(buildingQ);
       if (buildingBody != null) {
-        overpassResponded = true;
         final polygon = _extractPolygon(buildingBody);
         if (polygon != null) {
           _buildingPolygons[pin.id] = polygon;
@@ -277,16 +273,12 @@ class MapScreenState extends State<MapScreen>
         }
       }
 
-      // 3단계: Overpass가 정상 응답했지만 폴리곤이 없는 경우 (길바닥·야외) → 원형 fallback
-      if (overpassResponded) {
-        _buildingPolygons[pin.id] = _makeCirclePolygon(lat, lng, 80);
-        debugPrint('⭕ 원형 fallback (Overpass 응답 but 폴리곤 없음, 반경 80m)');
-      } else {
-        // Overpass 자체 실패(429·네트워크) → 원 없이 스킵, 다음 앱 실행 시 재시도
-        debugPrint('⚠️ Overpass 실패 → 폴리곤 없이 스킵 (다음 실행 시 재시도)');
-      }
+      // 3단계: 길바닥·야외·API 실패 모두 → 반경 80m 원형 폴리곤
+      _buildingPolygons[pin.id] = _makeCirclePolygon(lat, lng, 80);
+      debugPrint('⭕ 원형 fallback 적용 (반경 80m)');
     } catch (e) {
       debugPrint('건물 쿼리 오류: $e');
+      _buildingPolygons[pin.id] = _makeCirclePolygon(lat, lng, 80);
     }
   }
 
