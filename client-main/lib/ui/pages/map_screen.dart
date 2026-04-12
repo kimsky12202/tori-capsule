@@ -84,7 +84,7 @@ class MapScreenState extends State<MapScreen>
   bool _tapListenerRegistered = false;
 
   static const _overlaySourceId = 'night-overlay-source';
-  static const _overlayLayerId  = 'night-overlay-layer';
+  static const _overlayLayerId = 'night-overlay-layer';
 
   @override
   bool get wantKeepAlive => true;
@@ -112,16 +112,25 @@ class MapScreenState extends State<MapScreen>
         await _updateOverlay();
         return;
       }
-      await _map!.style.addSource(GeoJsonSource(
-        id: _overlaySourceId,
-        data: jsonEncode(_buildOverlayGeoJson()),
-      ));
-      await _map!.style.addLayer(FillLayer(
-        id: _overlayLayerId,
-        sourceId: _overlaySourceId,
-      ));
-      await _map!.style.setStyleLayerProperty(_overlayLayerId, 'fill-color', '#05101F');
-      await _map!.style.setStyleLayerProperty(_overlayLayerId, 'fill-opacity', 0.85);
+      await _map!.style.addSource(
+        GeoJsonSource(
+          id: _overlaySourceId,
+          data: jsonEncode(_buildOverlayGeoJson()),
+        ),
+      );
+      await _map!.style.addLayer(
+        FillLayer(id: _overlayLayerId, sourceId: _overlaySourceId),
+      );
+      await _map!.style.setStyleLayerProperty(
+        _overlayLayerId,
+        'fill-color',
+        '#05101F',
+      );
+      await _map!.style.setStyleLayerProperty(
+        _overlayLayerId,
+        'fill-opacity',
+        0.85,
+      );
     } catch (e) {
       debugPrint('오버레이 레이어 초기화 오류: $e');
     }
@@ -131,7 +140,9 @@ class MapScreenState extends State<MapScreen>
     if (_map == null) return;
     try {
       await _map!.style.setStyleSourceProperty(
-        _overlaySourceId, 'data', jsonEncode(_buildOverlayGeoJson()),
+        _overlaySourceId,
+        'data',
+        jsonEncode(_buildOverlayGeoJson()),
       );
     } catch (e) {
       debugPrint('오버레이 업데이트 오류: $e');
@@ -143,7 +154,13 @@ class MapScreenState extends State<MapScreen>
     final rings = <List<List<double>>>[
       // 외부 링: CCW (반시계방향) → SW→SE→NE→NW→SW 순서
       // Shoelace 검증: area > 0 → 반시계방향 ✓
-      [[-180.0,-85.0],[180.0,-85.0],[180.0,85.0],[-180.0,85.0],[-180.0,-85.0]],
+      [
+        [-180.0, -85.0],
+        [180.0, -85.0],
+        [180.0, 85.0],
+        [-180.0, 85.0],
+        [-180.0, -85.0],
+      ],
     ];
     for (final polygon in _buildingPolygons.values) {
       if (polygon.length >= 3) {
@@ -220,7 +237,8 @@ class MapScreenState extends State<MapScreen>
       for (int attempt = 1; attempt <= 3; attempt++) {
         try {
           final res = await http.get(url).timeout(const Duration(seconds: 15));
-          if (res.statusCode == 200) return jsonDecode(res.body) as Map<String, dynamic>;
+          if (res.statusCode == 200)
+            return jsonDecode(res.body) as Map<String, dynamic>;
           if (res.statusCode == 429) {
             final wait = attempt * 5;
             debugPrint('Overpass 429 → $wait초 대기 (시도 $attempt/3)');
@@ -284,7 +302,12 @@ class MapScreenState extends State<MapScreen>
   }
 
   /// 위경도 기준 원형 GeoJSON 링 생성 (반경 미터)
-  List<List<double>> _makeCirclePolygon(double lat, double lng, double radiusMeters, {int points = 36}) {
+  List<List<double>> _makeCirclePolygon(
+    double lat,
+    double lng,
+    double radiusMeters, {
+    int points = 36,
+  }) {
     const mPerDegLat = 111320.0;
     final mPerDegLng = 111320.0 * math.cos(lat * math.pi / 180);
     final ring = <List<double>>[];
@@ -307,8 +330,9 @@ class MapScreenState extends State<MapScreen>
   /// 폴리곤 캐시 저장 (재시작 시 Overpass 재쿼리 방지)
   Future<void> _savePolygons() async {
     final prefs = await SharedPreferences.getInstance();
-    final map = _buildingPolygons.map((id, coords) =>
-        MapEntry(id, jsonEncode(coords)));
+    final map = _buildingPolygons.map(
+      (id, coords) => MapEntry(id, jsonEncode(coords)),
+    );
     await prefs.setString(_polygonsKey, jsonEncode(map));
   }
 
@@ -333,7 +357,9 @@ class MapScreenState extends State<MapScreen>
     final list = prefs.getStringList(_prefsKey) ?? [];
     for (final raw in list) {
       try {
-        final pin = CapsulePin.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+        final pin = CapsulePin.fromJson(
+          jsonDecode(raw) as Map<String, dynamic>,
+        );
         if (pin.photoPath == null || File(pin.photoPath!).existsSync()) {
           _pins.add(pin);
           await _addMarkerToMap(pin);
@@ -460,7 +486,8 @@ class MapScreenState extends State<MapScreen>
       if (data.isEmpty) {
         return (null, 'EXIF 데이터가 없어요. 카메라로 직접 찍은 사진을 써보세요.');
       }
-      if (!data.containsKey('GPS GPSLatitude') || !data.containsKey('GPS GPSLongitude')) {
+      if (!data.containsKey('GPS GPSLatitude') ||
+          !data.containsKey('GPS GPSLongitude')) {
         return (null, 'GPS 정보가 없어요. 카메라 설정에서 "위치 태그"를 켜고 직접 찍은 사진을 써보세요.');
       }
 
@@ -485,13 +512,21 @@ class MapScreenState extends State<MapScreen>
       if (data['GPS GPSLatitudeRef']?.printable == 'S') lat = -lat;
       if (data['GPS GPSLongitudeRef']?.printable == 'W') lng = -lng;
 
-      return (geo.Position(
-        latitude: lat,
-        longitude: lng,
-        timestamp: DateTime.now(),
-        accuracy: 0, altitude: 0, altitudeAccuracy: 0,
-        heading: 0, headingAccuracy: 0, speed: 0, speedAccuracy: 0,
-      ), '');
+      return (
+        geo.Position(
+          latitude: lat,
+          longitude: lng,
+          timestamp: DateTime.now(),
+          accuracy: 0,
+          altitude: 0,
+          altitudeAccuracy: 0,
+          heading: 0,
+          headingAccuracy: 0,
+          speed: 0,
+          speedAccuracy: 0,
+        ),
+        '',
+      );
     } catch (e) {
       debugPrint('EXIF 오류: $e');
       return (null, 'EXIF 읽기 오류: $e');
@@ -535,10 +570,16 @@ class MapScreenState extends State<MapScreen>
       ..lineTo(sz / 2 + 10, sz - 4)
       ..close();
     c.drawPath(tail, Paint()..color = const Color(0xFF7B5EA7));
-    c.drawCircle(Offset(sz / 2, sz / 2), sz / 2 - 2, Paint()..color = const Color(0xFF7B5EA7));
-    c.clipPath(Path()..addOval(
-      Rect.fromCircle(center: Offset(sz / 2, sz / 2), radius: sz / 2 - pad),
-    ));
+    c.drawCircle(
+      Offset(sz / 2, sz / 2),
+      sz / 2 - 2,
+      Paint()..color = const Color(0xFF7B5EA7),
+    );
+    c.clipPath(
+      Path()..addOval(
+        Rect.fromCircle(center: Offset(sz / 2, sz / 2), radius: sz / 2 - pad),
+      ),
+    );
     final sw = image.width.toDouble(), sh = image.height.toDouble();
     final ms = math.min(sw, sh);
     c.drawImageRect(
@@ -558,7 +599,10 @@ class MapScreenState extends State<MapScreen>
     _pinManager!.addOnPointAnnotationClickListener(
       _AnnotationTapListener((PointAnnotation tapped) {
         final pinId = _markerMap.entries
-            .firstWhere((e) => e.value == tapped.id, orElse: () => const MapEntry('', ''))
+            .firstWhere(
+              (e) => e.value == tapped.id,
+              orElse: () => const MapEntry('', ''),
+            )
             .key;
         if (pinId.isEmpty) return;
         final p = _pins.firstWhere(
@@ -606,7 +650,9 @@ class MapScreenState extends State<MapScreen>
           );
         }
         gpsPos = await geo.Geolocator.getCurrentPosition(
-          locationSettings: const geo.LocationSettings(accuracy: geo.LocationAccuracy.high),
+          locationSettings: const geo.LocationSettings(
+            accuracy: geo.LocationAccuracy.high,
+          ),
         );
       }
 
@@ -625,10 +671,12 @@ class MapScreenState extends State<MapScreen>
       // 3D 건물이 보이는 입체 뷰로 이동
       await _map?.flyTo(
         CameraOptions(
-          center: Point(coordinates: Position(gpsPos.longitude, gpsPos.latitude)),
+          center: Point(
+            coordinates: Position(gpsPos.longitude, gpsPos.latitude),
+          ),
           zoom: 18.5,
-          pitch: 65.0,   // 기울기: 위에서 내려다보는 각도 (0=수직, 60=입체)
-          bearing: 0.0,  // 방위각: 0=북쪽 기준
+          pitch: 65.0, // 기울기: 위에서 내려다보는 각도 (0=수직, 60=입체)
+          bearing: 0.0, // 방위각: 0=북쪽 기준
         ),
         MapAnimationOptions(duration: 1800),
       );
@@ -640,7 +688,9 @@ class MapScreenState extends State<MapScreen>
       await _updateOverlay(); // Mapbox 레이어 업데이트
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('오류: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('오류: $e')));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -697,17 +747,29 @@ class MapScreenState extends State<MapScreen>
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 40, height: 4,
-              decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
             const SizedBox(height: 16),
             if (pin.photo != null && pin.photo!.existsSync())
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: Image.file(pin.photo!, height: 200, width: double.infinity, fit: BoxFit.cover),
+                child: Image.file(
+                  pin.photo!,
+                  height: 200,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                ),
               ),
             const SizedBox(height: 16),
-            Text(pin.title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            Text(
+              pin.title,
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
             Text(
               '📍 ${pin.lat.toStringAsFixed(5)}, ${pin.lng.toStringAsFixed(5)}',
@@ -740,11 +802,14 @@ class MapScreenState extends State<MapScreen>
           if (_isLoading)
             Container(
               color: Colors.black26,
-              child: const Center(child: CircularProgressIndicator(color: Color(0xFF7B5EA7))),
+              child: const Center(
+                child: CircularProgressIndicator(color: Color(0xFF7B5EA7)),
+              ),
             ),
           // 광화문 테스트 버튼 (임시)
           Positioned(
-            bottom: 170, right: 16,
+            bottom: 170,
+            right: 16,
             child: FloatingActionButton(
               heroTag: 'test',
               backgroundColor: const Color(0xFFE8A838),
@@ -753,7 +818,8 @@ class MapScreenState extends State<MapScreen>
             ),
           ),
           Positioned(
-            bottom: 100, right: 16,
+            bottom: 100,
+            right: 16,
             child: FloatingActionButton(
               heroTag: 'photo',
               backgroundColor: const Color(0xFF7B5EA7),
@@ -762,7 +828,8 @@ class MapScreenState extends State<MapScreen>
             ),
           ),
           Positioned(
-            bottom: 30, right: 16,
+            bottom: 30,
+            right: 16,
             child: FloatingActionButton(
               heroTag: 'location',
               backgroundColor: Colors.white,
