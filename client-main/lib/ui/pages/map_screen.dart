@@ -525,7 +525,19 @@ class MapScreenState extends State<MapScreen>
   }
 
   Future<Uint8List> _makePhotoMarker(File photo) async {
-    final image = await decodeImageFromList(await photo.readAsBytes());
+    final bytes = await photo.readAsBytes();
+    final image = await decodeImageFromList(bytes);
+
+    // EXIF orientation 읽기 (decodeImageFromList는 EXIF 회전을 무시함)
+    int orientation = 1;
+    try {
+      final exifData = await readExifFromBytes(bytes);
+      final tag = exifData['Image Orientation'];
+      if (tag != null) {
+        orientation = int.tryParse(tag.printable) ?? 1;
+      }
+    } catch (_) {}
+
     const double sz = 140, pad = 10;
     final rec = PictureRecorder();
     final c = Canvas(rec, Rect.fromLTWH(0, 0, sz, sz + 20));
@@ -539,14 +551,30 @@ class MapScreenState extends State<MapScreen>
     c.clipPath(Path()..addOval(
       Rect.fromCircle(center: Offset(sz / 2, sz / 2), radius: sz / 2 - pad),
     ));
+
     final sw = image.width.toDouble(), sh = image.height.toDouble();
     final ms = math.min(sw, sh);
+    final drawSize = sz - pad * 2;
+
+    c.save();
+    c.translate(sz / 2, sz / 2);
+    // EXIF 방향에 따라 캔버스 회전 적용
+    // orientation 6: 90° CW 저장 → 90° CW 회전으로 보정
+    // orientation 8: 90° CCW 저장 → 90° CCW 회전으로 보정
+    // orientation 3: 180° 회전 저장 → 180° 회전으로 보정
+    switch (orientation) {
+      case 3: c.rotate(math.pi); break;
+      case 6: c.rotate(math.pi / 2); break;
+      case 8: c.rotate(-math.pi / 2); break;
+    }
     c.drawImageRect(
       image,
       Rect.fromCenter(center: Offset(sw / 2, sh / 2), width: ms, height: ms),
-      Rect.fromLTWH(pad, pad, sz - pad * 2, sz - pad * 2),
+      Rect.fromCenter(center: Offset.zero, width: drawSize, height: drawSize),
       Paint(),
     );
+    c.restore();
+
     final out = await rec.endRecording().toImage(sz.toInt(), (sz + 20).toInt());
     final d = await out.toByteData(format: ImageByteFormat.png);
     return d!.buffer.asUint8List();
