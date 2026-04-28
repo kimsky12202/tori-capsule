@@ -24,3 +24,10 @@ plugins {
 }
 
 include(":app")
+
+// Unity as a Library 모듈 (Unity 프로젝트 Export 후 생성됨)
+val unityProjectPath = file("../unity_project/unityLibrary")
+if (unityProjectPath.exists()) {
+    include(":unityLibrary")
+    project(":unityLibrary").projectDir = unityProjectPath
+}
